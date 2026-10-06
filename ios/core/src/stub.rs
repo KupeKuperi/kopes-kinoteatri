@@ -69,5 +69,5 @@ pub async fn resolve(id: &str, season: usize, episode: usize, stream: usize, _su
     let list = streams(id, season, episode).await?;
     list.get(stream).ok_or_else(|| format!("No stream {stream}."))?;
     let title = details(id).await?.title;
-    Ok(Source { url: TEST_STREAM.into(), headers: vec![], subtitle_url: None, title, max_height: None })
+    Ok(Source { url: TEST_STREAM.into(), headers: vec![], subtitle_url: None, subtitle_lang: None, title, max_height: None })
 }

@@ -117,6 +117,8 @@ pub struct Source {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub subtitle_url: Option<String>,
+    /// The subtitle file's language, as the app asked for it ("English"); None without subtitles.
+    pub subtitle_lang: Option<String>,
     pub title: String,
     /// The picked quality as a height cap (MovieBox: all qualities share one manifest); None = no cap.
     pub max_height: Option<u64>,

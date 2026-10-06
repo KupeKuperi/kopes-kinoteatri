@@ -1,32 +1,37 @@
 //! The local stream server AVPlayer plays from (127.0.0.1): relays each play with its source's
 //! headers, DASH as HLS. A port of the desktop relay (src/main/phone/relay.ts) without what only
 //! exists there (the engine's player stand-in, idle timers): a play lives from `open` to `close`.
-//! Two things the engine's own relay did for the desktop are done here too: DASH fetched in ranges
-//! (MovieBox's CDN is slow per connection) and the picked quality as a height cap.
+//! What the engine's own relay did for the desktop is done here too: MovieBox's CDN is slow per
+//! connection, so segments and files come in ranges; the picked quality caps a DASH manifest; the
+//! source's Cookie goes only to the source's own host (its other headers go everywhere).
 //! OWNER: agent "hls" (see GUIDE.md).
 //!
 //! Under /s/<session>/:
 //! - `master.m3u8`: DASH, written from the manifest; HLS, the source's own with its links pointed here
 //! - `v/<rep>.m3u8`, `a/<rep>.m3u8`: a DASH rendition's media playlist
 //! - `init/<rep>.mp4`: its initialization segment, HEVC relabelled hvc1 (fetched once per play)
-//! - `seg/<rep>/<i>.m4s`: its segment `i`, streamed (fetched in ranges: see `segment`)
+//! - `seg/<rep>/<i>.m4s`: its segment `i`, streamed (fetched in ranges: see `stream`)
 //! - `subs.m3u8`, `subs.vtt`: the subtitles, as WebVTT
 //! - `h/<base64url(url)>[.m3u8]`: HLS, a playlist or file named in a rewritten playlist (only those)
-//! - `video`: a file (MP4…), seeking (Range) passed both ways
+//! - `video`: a file (MP4…), seeking (Range) passed both ways, fetched in ranges like segments
 //!
 //! An upstream 403 reaches AVPlayer as 403: MovieBox's CDN cookie is signed and runs out, and the
-//! app tells that apart from a broken stream.
+//! app tells that apart from a broken stream. iOS can take a suspended app's listening socket
+//! (TN2277): the server then listens again, on the same port when it can.
 
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+use std::future::Future;
+use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::task::Poll;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
-use futures::{FutureExt, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Empty, Full, StreamBody};
 use hyper::body::{Frame, Incoming};
@@ -36,8 +41,8 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use reqwest::Url;
-use tokio::net::TcpListener;
-use tokio::sync::{OnceCell, watch};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{Notify, OnceCell, watch};
 
 use crate::api::{Play, Source};
 use crate::hls::{self, DashManifest, HlsPaths, MediaType, Rendition, SubtitleTrack};
@@ -58,15 +63,18 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(30);
 /// …and never goes quiet for longer than this.
 const STALL_TIMEOUT: Duration = Duration::from_secs(60);
-/// MovieBox's CDN slows every connection to about 130 KiB/s, far below a 1080p stream: segments
-/// (and the manifest) come in 95 KiB ranges, 16 at a time, as the engine's own relay fetches them
-/// (over 2 MiB/s).
+/// MovieBox's CDN slows every connection to about 130 KiB/s, far below a 1080p stream: segments,
+/// files (and the manifest) come in 95 KiB ranges, 16 at a time, as the engine's own relay fetches
+/// them (over 2 MiB/s).
 const RANGE_BYTES: u64 = 95 * 1024;
 const RANGES_AT_ONCE: usize = 16;
 /// Plays left open (the app closes each one); beyond this the oldest is let go.
 const MAX_SESSIONS: usize = 8;
-/// What AVPlayer's subtitle menu calls the track: a Source doesn't say which language it is.
+/// What AVPlayer's subtitle menu calls the track when the app named no language.
 const SUBTITLE_NAME: &str = "Subtitles";
+/// More accept errors in a row than this and the listening socket is taken for lost, whatever
+/// they say.
+const MAX_ACCEPT_ERRORS: u32 = 20;
 
 pub struct Server {
     shared: Arc<Shared>,
@@ -74,10 +82,15 @@ pub struct Server {
 }
 
 struct Shared {
-    port: u16,
+    /// Where AVPlayer connects; it moves only when the old port can't be had again.
+    port: AtomicU16,
     client: reqwest::Client,
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     opened: AtomicU64,
+    /// Asks the accept loop to listen again: `open` found nothing answering.
+    relisten: Notify,
+    /// How many times it listened again (`open` waits for the next one).
+    listens: watch::Sender<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +105,8 @@ struct Session {
     id: String,
     url: String,
     headers: HeaderMap,
+    /// The source's host (and port): the only one its Cookie goes to.
+    home: String,
     kind: Kind,
     /// DASH: the picked quality; taller renditions are left out of the manifest.
     max_height: Option<u64>,
@@ -105,6 +120,8 @@ struct Session {
     /// HLS: the links its playlists were rewritten from (only those are relayed).
     allowed: Mutex<HashSet<String>>,
     vtt: Option<String>,
+    /// The subtitles' language as the app asked for it ("English").
+    subtitle_lang: Option<String>,
     /// Becomes true when the play is closed: its streams are cut.
     closed: watch::Sender<bool>,
 }
@@ -153,13 +170,13 @@ impl Server {
             .no_zstd()
             .build()
             .map_err(|e| cant(&e))?;
-        let shared = Arc::new(Shared { port, client, sessions: Mutex::default(), opened: AtomicU64::new(0) });
+        let shared = Arc::new(Shared::new(port, client));
         let accept = tokio::spawn(accept(listener, shared.clone())).abort_handle();
         Ok(Server { shared, accept })
     }
 
     pub fn port(&self) -> u16 {
-        self.shared.port
+        self.shared.port()
     }
 
     /// A new play of `source`: works out what the stream is (DASH, HLS or a file), fetches its
@@ -169,14 +186,16 @@ impl Server {
         let shared = &self.shared;
         let url = Url::parse(&source.url).map_err(|_| "The stream's address isn't valid.".to_string())?;
         let headers = upstream_headers(&source.headers);
+        let home = authority(&url);
         let (kind, vtt) = tokio::join!(
             sniff(&shared.client, &url, &headers),
-            subtitles(&shared.client, source.subtitle_url.as_deref(), &headers)
+            subtitles(&shared.client, source.subtitle_url.as_deref(), &headers, &home)
         );
         let session = Arc::new(Session {
             id: session_id(),
             url: source.url,
             headers,
+            home,
             kind,
             max_height: source.max_height,
             serial: shared.opened.fetch_add(1, Ordering::Relaxed),
@@ -185,13 +204,15 @@ impl Server {
             codecs: Mutex::default(),
             allowed: Mutex::default(),
             vtt,
+            subtitle_lang: source.subtitle_lang.map(|l| l.trim().to_string()).filter(|l| !l.is_empty()),
             closed: watch::channel(false).0,
         });
         if kind == Kind::Dash {
             let d = manifest(shared, &session).await.map_err(|f| f.message)?;
             codecs(shared, &session, &d).await.map_err(|f| f.message)?;
         }
-        let base = format!("http://127.0.0.1:{}/s/{}", shared.port, session.id);
+        shared.listening().await;
+        let base = format!("http://127.0.0.1:{}/s/{}", shared.port(), session.id);
         let play = Play {
             session: session.id.clone(),
             url: format!("{base}/{}", if kind == Kind::File { "video" } else { "master.m3u8" }),
@@ -219,6 +240,21 @@ impl Drop for Server {
 }
 
 impl Shared {
+    fn new(port: u16, client: reqwest::Client) -> Shared {
+        Shared {
+            port: AtomicU16::new(port),
+            client,
+            sessions: Mutex::default(),
+            opened: AtomicU64::new(0),
+            relisten: Notify::new(),
+            listens: watch::channel(0).0,
+        }
+    }
+
+    fn port(&self) -> u16 {
+        self.port.load(Ordering::Relaxed)
+    }
+
     fn session(&self, id: &str) -> Option<Arc<Session>> {
         lock(&self.sessions).get(id).cloned()
     }
@@ -233,11 +269,30 @@ impl Shared {
         }
         sessions.insert(session.id.clone(), session);
     }
+
+    /// Makes sure something answers on the port before its address is handed out: iOS can take a
+    /// suspended app's listening socket without the accept loop ever hearing of it (TN2277).
+    async fn listening(&self) {
+        let port = self.port();
+        let connect = TcpStream::connect(SocketAddr::from((Ipv4Addr::LOCALHOST, port)));
+        if matches!(tokio::time::timeout(Duration::from_secs(1), connect).await, Ok(Ok(_))) {
+            return;
+        }
+        log::warn!("stream server: nothing answers on port {port}: listening again");
+        let mut listens = self.listens.subscribe();
+        self.relisten.notify_one();
+        let _ = tokio::time::timeout(Duration::from_secs(3), listens.changed()).await;
+    }
 }
 
 impl Session {
     fn end(&self) {
         self.closed.send_replace(true);
+    }
+
+    /// A request for this play, with the source's headers (see `headers_for`).
+    fn request(&self, client: &reqwest::Client, method: Method, url: &Url) -> reqwest::RequestBuilder {
+        client.request(method, url.clone()).headers(headers_for(&self.headers, &self.home, url))
     }
 }
 
@@ -245,30 +300,88 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+// ── Listening ──────────────────────────────────────────────────────────────────────
+
+/// Accept errors that pass, with the listening socket still working.
+fn transient(e: &io::Error) -> bool {
+    matches!(e.kind(), io::ErrorKind::ConnectionAborted | io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock)
+        // EMFILE, ENFILE (the same numbers on Linux and Apple's systems): out of file descriptors.
+        || matches!(e.raw_os_error(), Some(23 | 24))
+}
+
 async fn accept(listener: TcpListener, shared: Arc<Shared>) {
+    let mut listener = Some(listener);
+    let mut errors = 0;
     loop {
-        let stream = match listener.accept().await {
-            Ok((stream, _)) => stream,
-            Err(e) => {
-                // Out of file descriptors and the like: wait a moment rather than spin.
-                log::warn!("stream server: accept failed: {e}");
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                continue;
-            }
+        let Some(current) = &listener else {
+            // Nothing could be bound: try again in a moment.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            listener = relisten(&shared).await;
+            continue;
         };
-        let _ = stream.set_nodelay(true);
-        let shared = shared.clone();
-        tokio::spawn(async move {
-            let service = service_fn(move |req: Request<Incoming>| {
-                let shared = shared.clone();
-                async move { Ok::<_, Infallible>(respond(&shared, req).await) }
-            });
-            // Errors here are AVPlayer hanging up mid-answer.
-            if let Err(e) = http1::Builder::new().timer(TokioTimer::new()).serve_connection(TokioIo::new(stream), service).await {
-                log::debug!("stream server: connection ended: {e}");
+        let accepted = tokio::select! {
+            accepted = current.accept() => Some(accepted),
+            () = shared.relisten.notified() => None,
+        };
+        match accepted {
+            Some(Ok((stream, _))) => {
+                errors = 0;
+                serve(stream, shared.clone());
             }
-        });
+            Some(Err(e)) if transient(&e) && errors + 1 < MAX_ACCEPT_ERRORS => {
+                errors += 1;
+                log::warn!("stream server: accept failed ({e}); trying again");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            lost => {
+                if let Some(Err(e)) = lost {
+                    log::warn!("stream server: the listening socket is lost ({e}): listening again");
+                }
+                // Closed first, so its port can be taken again.
+                drop(listener.take());
+                errors = 0;
+                listener = relisten(&shared).await;
+            }
+        }
     }
+}
+
+fn serve(stream: TcpStream, shared: Arc<Shared>) {
+    let _ = stream.set_nodelay(true);
+    tokio::spawn(async move {
+        let service = service_fn(move |req: Request<Incoming>| {
+            let shared = shared.clone();
+            async move { Ok::<_, Infallible>(respond(&shared, req).await) }
+        });
+        // Errors here are AVPlayer hanging up mid-answer.
+        if let Err(e) = http1::Builder::new().timer(TokioTimer::new()).serve_connection(TokioIo::new(stream), service).await {
+            log::debug!("stream server: connection ended: {e}");
+        }
+    });
+}
+
+/// Listens again after the socket was lost: on the same port when it can be had (addresses handed
+/// out keep working), else on a new one, which `Server::port` reports from then on.
+async fn relisten(shared: &Shared) -> Option<TcpListener> {
+    let port = shared.port();
+    let listener = match TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            log::warn!("stream server: port {port} can't be had again ({e}): taking a new one");
+            match TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await {
+                Ok(listener) => listener,
+                Err(e) => {
+                    log::warn!("stream server: can't listen ({e})");
+                    return None;
+                }
+            }
+        }
+    };
+    let port = listener.local_addr().ok()?.port();
+    shared.port.store(port, Ordering::Relaxed);
+    shared.listens.send_modify(|n| *n += 1);
+    log::warn!("stream server: listening again on port {port}");
+    Some(listener)
 }
 
 // ── HTTP: /s/<session>/… ─────────────────────────────────────────────────────────
@@ -299,7 +412,7 @@ async fn route(shared: &Shared, req: &Request<Incoming>) -> Result<Response<Body
     }
     let parts: Vec<&str> = what.split('/').collect();
     match s.kind {
-        Kind::File if what == "video" => pipe(shared, &s, req, &s.url, None).await,
+        Kind::File if what == "video" => stream(shared, &s, req, &s.url, None).await,
         Kind::Hls if what == "master.m3u8" => playlist(shared, &s, &s.url).await,
         Kind::Hls if parts[0] == "h" && parts.get(1).is_some_and(|p| !p.is_empty()) => {
             // Links to playlists end in .m3u8 here; everything else is media.
@@ -342,7 +455,13 @@ async fn dash(shared: &Shared, s: &Session, req: &Request<Incoming>, parts: &[&s
     match (what, a, b) {
         ("master.m3u8", _, _) => {
             let codecs = codecs(shared, s, &d).await?;
-            let subtitles = s.vtt.as_ref().map(|_| SubtitleTrack { uri: format!("/s/{}/subs.m3u8", s.id), name: SUBTITLE_NAME.into(), lang: None });
+            // Named as the app asked for them ("English"), with the language code AVPlayer's
+            // subtitle menu goes by, as relay.ts names them.
+            let subtitles = s.vtt.as_ref().map(|_| SubtitleTrack {
+                uri: format!("/s/{}/subs.m3u8", s.id),
+                name: s.subtitle_lang.clone().unwrap_or_else(|| SUBTITLE_NAME.into()),
+                lang: s.subtitle_lang.as_deref().and_then(language_code).and_then(|code| hls::language_tag(Some(code))),
+            });
             let master = hls::master_playlist(&d, |r| codecs.get(&r.id).cloned().unwrap_or_default(), &paths, subtitles.as_ref());
             Ok(send(StatusCode::OK, PLAYLIST, master))
         }
@@ -356,11 +475,54 @@ async fn dash(shared: &Shared, s: &Session, req: &Request<Incoming>, parts: &[&s
             None => Ok(not_found()),
         },
         ("seg", Some(a), Some(b)) => match find(a).zip(leading_number(b)).and_then(|(r, i)| r.segments.get(i)) {
-            Some(found) => segment(shared, s, req, &found.url).await,
+            Some(found) => stream(shared, s, req, &found.url, Some(MP4)).await,
             None => Ok(not_found()),
         },
         _ => Ok(not_found()),
     }
+}
+
+/// The app's subtitle language (an English name) as a language code (relay.ts LANGUAGE_CODES).
+fn language_code(name: &str) -> Option<&'static str> {
+    const CODES: &[(&str, &str)] = &[
+        ("English", "en"),
+        ("Georgian", "ka"),
+        ("Russian", "ru"),
+        ("Spanish", "es"),
+        ("French", "fr"),
+        ("German", "de"),
+        ("Italian", "it"),
+        ("Portuguese", "pt"),
+        ("Turkish", "tr"),
+        ("Ukrainian", "uk"),
+        ("Arabic", "ar"),
+        ("Hindi", "hi"),
+        ("Japanese", "ja"),
+        ("Korean", "ko"),
+        ("Chinese", "zh"),
+        ("Polish", "pl"),
+        ("Dutch", "nl"),
+        ("Greek", "el"),
+        ("Hebrew", "he"),
+        ("Persian", "fa"),
+        ("Indonesian", "id"),
+        ("Malay", "ms"),
+        ("Thai", "th"),
+        ("Vietnamese", "vi"),
+        ("Bengali", "bn"),
+        ("Tamil", "ta"),
+        ("Telugu", "te"),
+        ("Urdu", "ur"),
+        ("Czech", "cs"),
+        ("Danish", "da"),
+        ("Finnish", "fi"),
+        ("Hungarian", "hu"),
+        ("Norwegian", "no"),
+        ("Romanian", "ro"),
+        ("Swedish", "sv"),
+        ("Filipino", "fil"),
+    ];
+    CODES.iter().find(|(language, _)| language.eq_ignore_ascii_case(name.trim())).map(|&(_, code)| code)
 }
 
 /// The play's manifest, read once (a failed read is tried again on the next request), with the
@@ -495,17 +657,68 @@ fn replace_uris(line: &str, mut with: impl FnMut(&str) -> Result<String, String>
     Ok(out)
 }
 
-/// Streams one resource from upstream to AVPlayer, passing seeking (Range) both ways. When AVPlayer
+// ── Streaming to AVPlayer ─────────────────────────────────────────────────────────
+
+/// One request upstream for what AVPlayer asked, passing seeking (Range) both ways. When AVPlayer
 /// hangs up, hyper drops the body and with it the upstream request.
 async fn pipe(shared: &Shared, s: &Session, req: &Request<Incoming>, url: &str, content_type: Option<&'static str>) -> Result<Response<Body>, Failure> {
     let range = req.headers().get(header::RANGE).cloned();
     let head = req.method() == Method::HEAD;
-    let mut up = shared.client.request(if head { Method::HEAD } else { Method::GET }, url).headers(s.headers.clone());
+    let mut up = s.request(&shared.client, if head { Method::HEAD } else { Method::GET }, &upstream_url(url)?);
     if let Some(range) = &range {
         up = up.header(header::RANGE, range.clone());
     }
     let up = answer(up).await?;
     Ok(relay(up, s, url, content_type, range.is_some(), head))
+}
+
+/// What AVPlayer streams (a DASH segment, a file), fetched in 95 KiB ranges, 16 at a time, and
+/// passed on in order as they come (never more than those 16 in memory): the whole of it, or the
+/// range AVPlayer asked for; an open-ended range goes on until AVPlayer hangs up. A server without
+/// ranges, an error (an expired cookie's 403), a HEAD or an unusual Range goes the plain way.
+async fn stream(shared: &Shared, s: &Session, req: &Request<Incoming>, url: &str, content_type: Option<&'static str>) -> Result<Response<Body>, Failure> {
+    let asked = match req.headers().get(header::RANGE) {
+        None => Some((0, None)),
+        Some(range) => asked_range(range),
+    };
+    let Some((start, asked_end)) = asked.filter(|_| req.method() != Method::HEAD) else {
+        return pipe(shared, s, req, url, content_type).await;
+    };
+    let partial = req.headers().contains_key(header::RANGE);
+    let first_end = asked_end.unwrap_or(u64::MAX).min(start.saturating_add(RANGE_BYTES - 1));
+    let request = s.request(&shared.client, Method::GET, &upstream_url(url)?).header(header::RANGE, format!("bytes={start}-{first_end}"));
+    let first = answer(request).await?;
+    let got = first.headers().get(header::CONTENT_RANGE).and_then(content_range);
+    let (got_start, got_end, total) = match (first.status(), got) {
+        (StatusCode::PARTIAL_CONTENT, Some(got)) => got,
+        // A range of unknown size: one plain request instead.
+        (StatusCode::PARTIAL_CONTENT, None) => return pipe(shared, s, req, url, content_type).await,
+        // The whole of it (no ranges here), or an error: passed on as it came.
+        _ => return Ok(relay(first, s, url, content_type, partial, false)),
+    };
+    let last = asked_end.map_or(total - 1, |end| end.min(total - 1));
+    // Not the range asked for (a server that cuts ranges short, say): one plain request instead.
+    if got_start != start || got_end != first_end.min(last) {
+        return pipe(shared, s, req, url, content_type).await;
+    }
+    let mut res = Response::new(empty());
+    if partial {
+        *res.status_mut() = StatusCode::PARTIAL_CONTENT;
+        let range = HeaderValue::try_from(format!("bytes {start}-{last}/{total}")).map_err(|_| "A range can't be written.")?;
+        res.headers_mut().insert(header::CONTENT_RANGE, range);
+    }
+    let headers = res.headers_mut();
+    headers.insert(header::CONTENT_TYPE, response_type(first.headers(), url, content_type));
+    headers.insert(header::CONTENT_LENGTH, HeaderValue::from(last - start + 1));
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    for name in [header::LAST_MODIFIED, header::ETAG] {
+        if let Some(value) = first.headers().get(&name) {
+            headers.insert(name, value.clone());
+        }
+    }
+    let body = parts(shared, s, first, start, got_end, last).map(|part| part.map_err(|f| BoxError::from(f.message)));
+    *res.body_mut() = cut_on_close(body, s);
+    Ok(res)
 }
 
 /// Upstream's answer (not yet its body).
@@ -527,13 +740,7 @@ fn relay(up: reqwest::Response, s: &Session, url: &str, content_type: Option<&'s
             headers.insert(name, value.clone());
         }
     }
-    let upstream_type = up.headers().get(header::CONTENT_TYPE).filter(|t| !t.to_str().unwrap_or("").to_ascii_lowercase().contains("octet-stream"));
-    let content_type = match (content_type, upstream_type) {
-        (Some(fixed), _) => HeaderValue::from_static(fixed),
-        (None, Some(upstream)) => upstream.clone(),
-        (None, None) => HeaderValue::from_static(guess_type(url)),
-    };
-    headers.insert(header::CONTENT_TYPE, content_type);
+    headers.insert(header::CONTENT_TYPE, response_type(up.headers(), url, content_type));
     if !headers.contains_key(header::ACCEPT_RANGES) && !ranged {
         headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     }
@@ -543,67 +750,93 @@ fn relay(up: reqwest::Response, s: &Session, url: &str, content_type: Option<&'s
     res
 }
 
-/// A DASH segment: its first range tells the size, the rest are fetched 16 at a time and passed on
-/// in order as they come (never more than those 16 in memory). A server without ranges, or an
-/// error (an expired cookie's 403), is passed on as it came.
-async fn segment(shared: &Shared, s: &Session, req: &Request<Incoming>, url: &str) -> Result<Response<Body>, Failure> {
-    if req.method() == Method::HEAD || req.headers().contains_key(header::RANGE) {
-        return pipe(shared, s, req, url, Some(MP4)).await;
+/// The type AVPlayer is told: the one given (segments), else upstream's unless it says nothing
+/// (octet-stream), else one guessed from the address.
+fn response_type(upstream: &HeaderMap, url: &str, given: Option<&'static str>) -> HeaderValue {
+    let upstream = upstream.get(header::CONTENT_TYPE).filter(|t| !t.to_str().unwrap_or("").to_ascii_lowercase().contains("octet-stream"));
+    match (given, upstream) {
+        (Some(given), _) => HeaderValue::from_static(given),
+        (None, Some(upstream)) => upstream.clone(),
+        (None, None) => HeaderValue::from_static(guess_type(url)),
     }
-    let first = answer(shared.client.get(url).headers(s.headers.clone()).header(header::RANGE, format!("bytes=0-{}", RANGE_BYTES - 1))).await?;
-    let size = first.headers().get(header::CONTENT_RANGE).and_then(content_range);
-    let (first_end, total) = match (first.status(), size) {
-        (StatusCode::PARTIAL_CONTENT, Some(size)) => size,
-        // A range of unknown size: one plain request instead.
-        (StatusCode::PARTIAL_CONTENT, None) => return pipe(shared, s, req, url, Some(MP4)).await,
-        _ => return Ok(relay(first, s, url, Some(MP4), false, false)),
-    };
-    let mut res = Response::new(empty());
-    for name in [header::LAST_MODIFIED, header::ETAG] {
-        if let Some(value) = first.headers().get(&name) {
-            res.headers_mut().insert(name, value.clone());
-        }
-    }
-    let body = parts(shared, s, first, first_end, total).map(|part| part.map_err(|f| BoxError::from(f.message)));
-    *res.body_mut() = cut_on_close(body, s);
-    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(MP4));
-    res.headers_mut().insert(header::CONTENT_LENGTH, HeaderValue::from(total));
-    res.headers_mut().insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    Ok(res)
 }
 
-/// A resource whose first range (bytes 0 to `first_end` of `total`) has answered: its parts in
-/// order, the later ranges fetched 16 at a time from where the first was found.
-fn parts(shared: &Shared, s: &Session, first: reqwest::Response, first_end: u64, total: u64) -> impl Stream<Item = Result<Bytes, Failure>> + Send + use<> {
-    let (client, headers, url) = (shared.client.clone(), s.headers.clone(), first.url().clone());
-    let first_part = async move { exact(first, first_end + 1).await }.boxed();
-    let rest = (first_end + 1..total).step_by(RANGE_BYTES as usize).map(move |start| {
-        let end = (start + RANGE_BYTES - 1).min(total - 1);
+/// A resource whose first range (bytes `first_start` to `first_end`) has answered: its parts in
+/// order up to byte `last`, the later ranges fetched 16 at a time from where the first was found.
+fn parts(
+    shared: &Shared,
+    s: &Session,
+    first: reqwest::Response,
+    first_start: u64,
+    first_end: u64,
+    last: u64,
+) -> impl Stream<Item = Result<Bytes, Failure>> + Send + use<> {
+    let url = first.url().clone();
+    let (client, headers) = (shared.client.clone(), headers_for(&s.headers, &s.home, &url));
+    let first_part = Part::spawn(exact(first, first_end - first_start + 1));
+    let rest = (first_end + 1..=last).step_by(RANGE_BYTES as usize).map(move |start| {
+        let end = (start + RANGE_BYTES - 1).min(last);
         let request = client.get(url.clone()).headers(headers.clone()).header(header::RANGE, format!("bytes={start}-{end}")).timeout(FETCH_TIMEOUT);
-        async move {
-            let part = request.send().await.map_err(|e| Failure::from(failed(e)))?;
+        Part::spawn(async move {
+            let part = request.send().await.map_err(failed)?;
             if part.status() != StatusCode::PARTIAL_CONTENT {
                 return Err(answered(part.status()));
             }
             exact(part, end - start + 1).await
-        }
-        .boxed()
+        })
     });
     futures::stream::iter(std::iter::once(first_part).chain(rest)).buffered(RANGES_AT_ONCE)
 }
 
-/// A range's body, which must be exactly `len` bytes: a short one would corrupt the segment.
+/// One part, fetched by a task of its own: it downloads while AVPlayer still reads the parts before
+/// it, and a paused player (which stops reading) can't let its timeouts run out. Dropped (AVPlayer
+/// hung up), it stops.
+struct Part(tokio::task::JoinHandle<Result<Bytes, Failure>>);
+
+impl Part {
+    fn spawn(fetch: impl Future<Output = Result<Bytes, Failure>> + Send + 'static) -> Part {
+        Part(tokio::spawn(fetch))
+    }
+}
+
+impl Future for Part {
+    type Output = Result<Bytes, Failure>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx).map(|done| done.unwrap_or_else(|e| Err(Failure::from(format!("A part of the stream failed ({e})")))))
+    }
+}
+
+impl Drop for Part {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// A range's body, which must be exactly `len` bytes: a short one would corrupt the stream.
 async fn exact(part: reqwest::Response, len: u64) -> Result<Bytes, Failure> {
     let body = read_body(part).await?;
     if body.len() as u64 == len { Ok(body) } else { Err("The stream sent a range short.".into()) }
 }
 
-/// "bytes 0-97279/2984396" → (97279, 2984396): a range from the start, and the whole size.
-fn content_range(value: &HeaderValue) -> Option<(u64, u64)> {
+/// "bytes 100-199/2984396" → (100, 199, 2984396).
+fn content_range(value: &HeaderValue) -> Option<(u64, u64, u64)> {
     let (range, total) = value.to_str().ok()?.strip_prefix("bytes ")?.split_once('/')?;
     let (start, end) = range.split_once('-')?;
     let (start, end, total): (u64, u64, u64) = (start.trim().parse().ok()?, end.trim().parse().ok()?, total.trim().parse().ok()?);
-    (start == 0 && end < total).then_some((end, total))
+    (start <= end && end < total).then_some((start, end, total))
+}
+
+/// "bytes=a-b" or "bytes=a-", as AVPlayer asks: the start, and the end when there is one. Other
+/// forms (suffixes, several ranges) are left to the server.
+fn asked_range(value: &HeaderValue) -> Option<(u64, Option<u64>)> {
+    let (start, end) = value.to_str().ok()?.trim().strip_prefix("bytes=")?.split_once('-')?;
+    let start = start.trim().parse().ok()?;
+    let end = match end.trim() {
+        "" => None,
+        end => Some(end.parse().ok()?),
+    };
+    end.is_none_or(|end| end >= start).then_some((start, end))
 }
 
 /// A body for AVPlayer that is cut off (as an error, not a clean end) when the play is closed.
@@ -628,24 +861,48 @@ fn cut_on_close(body: impl Stream<Item = Result<Bytes, BoxError>> + Send + 'stat
 
 // ── Upstream ──────────────────────────────────────────────────────────────────────
 
+fn upstream_url(url: &str) -> Result<Url, Failure> {
+    Url::parse(url).map_err(|_| Failure::from("The stream has a bad address."))
+}
+
+/// Host and port as an address names them ("cdn.test", "127.0.0.1:8080").
+fn authority(url: &Url) -> String {
+    let host = url.host_str().unwrap_or("");
+    match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    }
+}
+
+/// The source's headers for a request to `url`: the Cookie (a signed CDN cookie) only to the
+/// source's own host, as the engine sends it; the rest everywhere.
+fn headers_for(headers: &HeaderMap, home: &str, url: &Url) -> HeaderMap {
+    let mut headers = headers.clone();
+    if authority(url) != home {
+        headers.remove(header::COOKIE);
+    }
+    headers
+}
+
 /// A GET for the play, with its headers; redirects followed, given up after FETCH_TIMEOUT.
-async fn fetch(shared: &Shared, s: &Session, url: &str) -> Result<reqwest::Response, String> {
-    shared.client.get(url).headers(s.headers.clone()).timeout(FETCH_TIMEOUT).send().await.map_err(failed)
+async fn fetch(shared: &Shared, s: &Session, url: &str) -> Result<reqwest::Response, Failure> {
+    let request = s.request(&shared.client, Method::GET, &upstream_url(url)?).timeout(FETCH_TIMEOUT);
+    Ok(request.send().await.map_err(failed)?)
 }
 
 /// A whole document fetched in ranges like segments (MovieBox's 140 KB manifest takes over a
 /// second in one request); a server without ranges sends it whole. Where it was found, and it.
 async fn fetch_whole(shared: &Shared, s: &Session, url: &str) -> Result<(Url, Bytes), Failure> {
     let range = format!("bytes=0-{}", RANGE_BYTES - 1);
-    let first = shared.client.get(url).headers(s.headers.clone()).header(header::RANGE, range).timeout(FETCH_TIMEOUT).send().await.map_err(failed)?;
+    let first = s.request(&shared.client, Method::GET, &upstream_url(url)?).header(header::RANGE, range).timeout(FETCH_TIMEOUT);
+    let first = first.send().await.map_err(failed)?;
     let found = first.url().clone();
-    let size = first.headers().get(header::CONTENT_RANGE).and_then(content_range);
-    match (first.status(), size) {
-        (StatusCode::PARTIAL_CONTENT, Some((end, total))) if total <= MAX_DOCUMENT as u64 => {
-            let parts: Vec<Bytes> = parts(shared, s, first, end, total).try_collect().await?;
+    match (first.status(), first.headers().get(header::CONTENT_RANGE).and_then(content_range)) {
+        (StatusCode::PARTIAL_CONTENT, Some((0, end, total))) if total <= MAX_DOCUMENT as u64 && end == (RANGE_BYTES - 1).min(total - 1) => {
+            let parts: Vec<Bytes> = parts(shared, s, first, 0, end, total - 1).try_collect().await?;
             Ok((found, parts.concat().into()))
         }
-        // A range of unknown size (or too big): one plain request, which says why it fails.
+        // Another range than asked for, or one too big: one plain request, which says why it fails.
         (StatusCode::PARTIAL_CONTENT, _) => {
             let res = fetch(shared, s, url).await?;
             let found = res.url().clone();
@@ -767,14 +1024,17 @@ fn looks_like_mpd(head: &str) -> bool {
 
 /// The play's subtitles as WebVTT; none when there are none or they can't be had (the film still
 /// plays).
-async fn subtitles(client: &reqwest::Client, url: Option<&str>, headers: &HeaderMap) -> Option<String> {
+async fn subtitles(client: &reqwest::Client, url: Option<&str>, headers: &HeaderMap, home: &str) -> Option<String> {
     let url = url.map(str::trim).filter(|u| !u.is_empty())?;
     let raw = match local_file(url) {
         // The engine may hand over a file it downloaded rather than a link.
         Some(path) => tokio::task::spawn_blocking(move || std::fs::read(path)).await.map_err(|e| e.to_string()).and_then(|r| r.map_err(|e| e.to_string())),
-        None => match client.get(url).headers(headers.clone()).timeout(FETCH_TIMEOUT).send().await {
-            Ok(res) => read_ok(res).await.map(Vec::from).map_err(|f| f.message),
-            Err(e) => Err(failed(e)),
+        None => match Url::parse(url) {
+            Ok(target) => match client.get(target.clone()).headers(headers_for(headers, home, &target)).timeout(FETCH_TIMEOUT).send().await {
+                Ok(res) => read_ok(res).await.map(Vec::from).map_err(|f| f.message),
+                Err(e) => Err(failed(e)),
+            },
+            Err(_) => Err("their address isn't valid".into()),
         },
     };
     match raw {
@@ -969,15 +1229,25 @@ mod tests {
         assert!(!looks_like_mpd("<?xml version=\"1.0\"?><!-- c --><MPD>"));
         assert!(!looks_like_mpd("<html>"));
 
-        let range = |v: &str| content_range(&HeaderValue::from_str(v).unwrap());
-        assert_eq!(range("bytes 0-97279/2984396"), Some((97279, 2984396)));
-        assert_eq!(range("bytes 0-59/60"), Some((59, 60)));
-        for odd in ["bytes 5-9/60", "bytes 0-60/60", "bytes 0-9/*", "bytes */60", "0-9/60"] {
-            assert_eq!(range(odd), None, "{odd}");
+        let value = |v: &str| HeaderValue::from_str(v).unwrap();
+        assert_eq!(content_range(&value("bytes 0-97279/2984396")), Some((0, 97279, 2984396)));
+        assert_eq!(content_range(&value("bytes 5-9/60")), Some((5, 9, 60)));
+        for odd in ["bytes 0-60/60", "bytes 9-5/60", "bytes 0-9/*", "bytes */60", "0-9/60"] {
+            assert_eq!(content_range(&value(odd)), None, "{odd}");
+        }
+        assert_eq!(asked_range(&value("bytes=0-1")), Some((0, Some(1))));
+        assert_eq!(asked_range(&value("bytes=500-")), Some((500, None)));
+        for odd in ["bytes=-500", "bytes=0-1,5-9", "bytes=9-5", "items=0-1", "bytes=x-"] {
+            assert_eq!(asked_range(&value(odd)), None, "{odd}");
         }
         assert_eq!(answered(StatusCode::FORBIDDEN).status, StatusCode::FORBIDDEN);
         assert_eq!(answered(StatusCode::NOT_FOUND).status, StatusCode::BAD_GATEWAY);
         assert_eq!(answered(StatusCode::NOT_FOUND).message, "The stream answered 404.");
+
+        assert_eq!((language_code("English"), language_code(" english "), language_code("Filipino")), (Some("en"), Some("en"), Some("fil")));
+        assert_eq!(language_code("Klingon"), None);
+        assert!(transient(&io::Error::from(io::ErrorKind::ConnectionAborted)) && transient(&io::Error::from_raw_os_error(24)));
+        assert!(!transient(&io::Error::from(io::ErrorKind::InvalidInput)));
 
         let headers = upstream_headers(&[
             ("Referer".into(), "https://a.test/".into()),
@@ -991,5 +1261,71 @@ mod tests {
         assert_eq!(headers.len(), 3);
         assert_eq!(headers.get_all(header::COOKIE).iter().count(), 2);
         assert_eq!(headers.get(header::REFERER).map(|v| v.as_bytes()), Some(&b"https://a.test/"[..]));
+
+        // The Cookie stays with the source's host (and port); the rest goes everywhere.
+        let home = authority(&Url::parse("https://cdn.test/a/index.mpd").unwrap());
+        for (url, cookies) in [("https://cdn.test/b/seg.m4s", 2), ("http://cdn.test/x", 2), ("https://cdn.test:8443/x", 0), ("https://other.test/x", 0)] {
+            let sent = headers_for(&headers, &home, &Url::parse(url).unwrap());
+            assert_eq!((sent.get_all(header::COOKIE).iter().count(), sent.contains_key(header::REFERER)), (cookies, true), "{url}");
+        }
+    }
+
+    fn source(url: &str) -> Source {
+        Source { url: url.into(), headers: vec![], subtitle_url: None, subtitle_lang: None, title: String::new(), max_height: None }
+    }
+
+    async fn status(url: &str) -> u16 {
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        client.get(url).send().await.map(|r| r.status().as_u16()).unwrap_or(0)
+    }
+
+    /// What iOS does to a suspended app's listening socket (TN2277), near enough: once a listening
+    /// socket is shut down, Linux fails its accept (EINVAL) and refuses connections.
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_lost_listening_socket_is_replaced_on_its_port() {
+        use std::os::fd::AsRawFd;
+        unsafe extern "C" {
+            fn shutdown(socket: i32, how: i32) -> i32;
+        }
+        let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let fd = listener.as_raw_fd();
+        let shared = Arc::new(Shared::new(port, reqwest::Client::new()));
+        let mut listens = shared.listens.subscribe();
+        tokio::spawn(accept(listener, shared.clone()));
+        let url = format!("http://127.0.0.1:{port}/s/nope/master.m3u8");
+        assert_eq!(status(&url).await, 410);
+        // SAFETY: `fd` is the accept loop's listening socket, still open; SHUT_RDWR is 2.
+        assert_eq!(unsafe { shutdown(fd, 2) }, 0);
+        tokio::time::timeout(Duration::from_secs(5), listens.changed()).await.expect("listening again").unwrap();
+        assert_eq!(shared.port(), port);
+        assert_eq!(status(&url).await, 410);
+    }
+
+    #[tokio::test]
+    async fn a_taken_port_moves_to_a_new_one() {
+        let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = taken.local_addr().unwrap().port();
+        let shared = Shared::new(port, reqwest::Client::new());
+        let listener = relisten(&shared).await.expect("listening");
+        let moved = listener.local_addr().unwrap().port();
+        assert_ne!(moved, port);
+        assert_eq!((shared.port(), *shared.listens.borrow()), (moved, 1));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_listens_again_when_nothing_answers() {
+        let server = Server::start().await.unwrap();
+        // As if iOS had taken the socket without the accept loop hearing of it: nothing answers on
+        // the port the server reports.
+        let silent = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        server.shared.port.store(silent, Ordering::Relaxed);
+        assert_eq!(status(&format!("http://127.0.0.1:{silent}/")).await, 0);
+        // A file's play opens without asking upstream (port 9 refuses: a 502 that says so).
+        let play = server.open(source("http://127.0.0.1:9/film.mp4")).await.unwrap();
+        assert_eq!(server.port(), silent);
+        assert!(play.url.starts_with(&format!("http://127.0.0.1:{silent}/s/")), "{}", play.url);
+        assert_eq!(status(&play.url).await, 502);
     }
 }
