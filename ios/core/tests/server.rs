@@ -1,7 +1,8 @@
 //! The stream server against a mock upstream on 127.0.0.1: DASH as HLS (the real LOTR manifest and
-//! init segments, fetched in ranges, capped at the picked quality), HLS passed through, a file with
-//! seeking, subtitles, the source's headers on every request, an expired cookie's 403 passed on,
-//! and streams that stop when AVPlayer hangs up or the play is closed.
+//! init segments, fetched in ranges, capped at the picked quality), HLS passed through, files with
+//! seeking (fetched in ranges too), subtitles named as asked, the source's headers on every request
+//! (its Cookie only to its own host), an expired cookie's 403 passed on, and streams that stop when
+//! AVPlayer hangs up or the play is closed.
 
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,19 +41,27 @@ type MockBody = UnsyncBoxBody<Bytes, Infallible>;
 /// The upstream: a CDN for DASH, HLS and files that wants the source's headers and minds Range.
 struct Mock {
     port: u16,
-    /// Paths asked for.
-    log: Mutex<Vec<String>>,
+    /// Requests: their path and the Cookie they came with.
+    log: Mutex<Vec<(String, String)>>,
     /// The endless stream's reader went away.
     endless_dropped: AtomicBool,
     /// The CDN's signed cookie has run out: everything answers 403.
     expired: AtomicBool,
+    /// Another mock, which to the server is another host: /cross/ links to it.
+    peer: Mutex<String>,
 }
 
 impl Mock {
     async fn start() -> Arc<Mock> {
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("the mock listens");
         let port = listener.local_addr().expect("the mock's port").port();
-        let mock = Arc::new(Mock { port, log: Mutex::default(), endless_dropped: AtomicBool::new(false), expired: AtomicBool::new(false) });
+        let mock = Arc::new(Mock {
+            port,
+            log: Mutex::default(),
+            endless_dropped: AtomicBool::new(false),
+            expired: AtomicBool::new(false),
+            peer: Mutex::default(),
+        });
         let state = mock.clone();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
@@ -74,13 +83,18 @@ impl Mock {
     }
 
     fn asked(&self, path: &str) -> usize {
-        self.log.lock().unwrap().iter().filter(|p| *p == path).count()
+        self.log.lock().unwrap().iter().filter(|(p, _)| p == path).count()
+    }
+
+    /// The Cookie of every request for `path`.
+    fn cookies(&self, path: &str) -> Vec<String> {
+        self.log.lock().unwrap().iter().filter(|(p, _)| p == path).map(|(_, cookie)| cookie.clone()).collect()
     }
 
     fn answer(self: &Arc<Self>, req: Request<Incoming>) -> Response<MockBody> {
         let path = req.uri().path().to_string();
-        self.log.lock().unwrap().push(path.clone());
         let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+        self.log.lock().unwrap().push((path.clone(), header("cookie")));
         if header("referer") != REFERER {
             return full(403, "text/plain", "no referer");
         }
@@ -102,7 +116,14 @@ impl Mock {
             "/subs/en.srt" => full(200, "application/x-subrip", SRT),
             "/file/movie.mp4" => ranged(&header("range"), "video/mp4", movie(), MOVIE_LEN),
             "/file/movie" => ranged(&header("range"), "application/octet-stream", movie(), MOVIE_LEN),
+            "/file/big.mp4" => ranged(&header("range"), "video/mp4", big_segment(), BIG_LEN),
+            "/file/huge.mp4" => huge(&header("range")),
             "/endless.mp4" => self.endless(),
+            "/cross/index.m3u8" => {
+                let peer = self.peer.lock().unwrap().clone();
+                let playlist = format!("#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4.0,\nseg0.m4s\n#EXTINF:4.0,\n{peer}/hls/video/seg1.m4s\n#EXT-X-ENDLIST\n");
+                full(200, "application/vnd.apple.mpegurl", playlist)
+            }
             _ if file.starts_with("init-stream") => full(200, "video/mp4", if file == "init-stream3.m4s" { AUDIO_INIT } else { VIDEO_INIT }),
             // Segment 2 is big (fetched in ranges); segment 3 claims more than it has; /sniff/ ignores Range.
             _ if file.starts_with("chunk-stream") => {
@@ -117,7 +138,7 @@ impl Mock {
                 };
                 if path.starts_with("/sniff/") { full(200, "video/iso.segment", body) } else { ranged(&header("range"), "video/iso.segment", body, claimed) }
             }
-            _ if path.starts_with("/hls/") => full(200, "video/mp4", format!("hls file {path}")),
+            _ if path.starts_with("/hls/") || path.starts_with("/cross/") => full(200, "video/mp4", format!("hls file {path}")),
             _ => full(404, "text/plain", "not here"),
         }
     }
@@ -178,11 +199,26 @@ fn ranged(range: &str, content_type: &str, body: Vec<u8>, claimed: usize) -> Res
     res
 }
 
+/// A 10 GiB film, made up as it's asked for (byte i is i % 251), ranges only.
+const HUGE_LEN: u64 = 10 << 30;
+
+fn huge(range: &str) -> Response<MockBody> {
+    let Some((start, end)) = range.strip_prefix("bytes=").and_then(|r| r.split_once('-')) else {
+        return full(400, "text/plain", "ranges only");
+    };
+    let start: u64 = start.parse().unwrap();
+    let end = end.parse().unwrap_or(HUGE_LEN - 1).min(HUGE_LEN - 1).min(start + (1 << 20));
+    let mut res = full(206, "video/mp4", (start..=end).map(|i| (i % 251) as u8).collect::<Vec<u8>>());
+    res.headers_mut().insert("content-range", format!("bytes {start}-{end}/{HUGE_LEN}").parse().unwrap());
+    res
+}
+
 fn source(url: &str, subtitles: Option<&str>) -> Source {
     Source {
         url: url.into(),
         headers: vec![("Referer".into(), REFERER.into()), ("User-Agent".into(), USER_AGENT.into()), ("Cookie".into(), COOKIE.into())],
         subtitle_url: subtitles.map(str::to_string),
+        subtitle_lang: None,
         title: "The Fellowship of the Ring".into(),
         max_height: None,
     }
@@ -245,7 +281,8 @@ async fn wait_until(what: &str, done: impl Fn() -> bool) {
 async fn dash_plays_as_hls() {
     let mock = Mock::start().await;
     let server = Server::start().await.expect("the server starts");
-    let play = server.open(source(&mock.url("/dash/x/index.mpd"), Some(&mock.url("/subs/en.srt")))).await.expect("the play opens");
+    let english = Source { subtitle_lang: Some("English".into()), ..source(&mock.url("/dash/x/index.mpd"), Some(&mock.url("/subs/en.srt"))) };
+    let play = server.open(english).await.expect("the play opens");
     let origin = format!("http://127.0.0.1:{}", server.port());
     let sid = play.session.clone();
     let base = format!("{origin}/s/{sid}");
@@ -261,7 +298,7 @@ async fn dash_plays_as_hls() {
         "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,AUTOSELECT=YES,URI=\"/s/{sid}/a/3.m3u8\"\n"
     )));
     assert!(master.contains(&format!(
-        "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"Subtitles\",DEFAULT=YES,AUTOSELECT=YES,FORCED=NO,URI=\"/s/{sid}/subs.m3u8\"\n"
+        "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"English\",LANGUAGE=\"en\",DEFAULT=YES,AUTOSELECT=YES,FORCED=NO,URI=\"/s/{sid}/subs.m3u8\"\n"
     )));
     assert_eq!(master.matches("CODECS=\"hvc1.1.6.L150.90,mp4a.40.2\",AUDIO=\"audio\",SUBTITLES=\"subs\"").count(), 3);
     // The first variant, where playback starts, is the 720p one.
@@ -482,7 +519,7 @@ async fn sessions_and_addresses() {
     assert_eq!(get(&format!("{origin}/elsewhere")).await.0, 404);
     let res = client().post(format!("{origin}/s/nope/master.m3u8")).send().await.unwrap();
     assert_eq!(res.status(), 405);
-    let bad = Source { url: "not a url".into(), headers: vec![], subtitle_url: None, title: String::new(), max_height: None };
+    let bad = Source { url: "not a url".into(), headers: vec![], subtitle_url: None, subtitle_lang: None, title: String::new(), max_height: None };
     assert_eq!(server.open(bad).await.expect_err("refused"), "The stream's address isn't valid.");
     server.close("nope");
 
@@ -548,4 +585,94 @@ async fn an_expired_cookie_is_a_403() {
     // What was read at open still answers; a play opened now says why it can't.
     assert_eq!(get(&dash.url).await.0, 200);
     assert_eq!(server.open(source(&mock.url("/dash/x/index.mpd"), None)).await.expect_err("expired"), "The stream answered 403.");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn subtitles_are_named_as_the_app_asked() {
+    let mock = Mock::start().await;
+    let server = Server::start().await.unwrap();
+    for (asked, track) in [(Some("Georgian"), "NAME=\"Georgian\",LANGUAGE=\"ka\","), (Some(" Klingon "), "NAME=\"Klingon\","), (None, "NAME=\"Subtitles\",")] {
+        let source = Source { subtitle_lang: asked.map(str::to_string), ..source(&mock.url("/dash/x/index.mpd"), Some(&mock.url("/subs/en.srt"))) };
+        let master = get_text(&server.open(source).await.unwrap().url).await;
+        assert!(master.contains(&format!("#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",{track}DEFAULT=YES")), "{asked:?}: {master}");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn files_come_in_ranges() {
+    let mock = Mock::start().await;
+    let server = Server::start().await.unwrap();
+    let play = server.open(source(&mock.url("/file/big.mp4"), None)).await.unwrap();
+    let big = big_segment();
+    // What AVPlayer asks for first: an open-ended range. It comes in 95 KiB ranges, whole and in order.
+    let res = client().get(&play.url).header("range", "bytes=0-").send().await.unwrap();
+    assert_eq!((res.status().as_u16(), header(&res, "content-range")), (206, format!("bytes 0-{}/{BIG_LEN}", BIG_LEN - 1)));
+    assert_eq!((header(&res, "content-length"), header(&res, "content-type")), (BIG_LEN.to_string(), "video/mp4".into()));
+    assert!(res.bytes().await.unwrap() == big);
+    assert_eq!(mock.asked("/file/big.mp4"), BIG_LEN.div_ceil(95 * 1024));
+    // A range in the middle: three ranges upstream.
+    let res = client().get(&play.url).header("range", "bytes=100000-299999").send().await.unwrap();
+    assert_eq!((res.status().as_u16(), header(&res, "content-range")), (206, format!("bytes 100000-299999/{BIG_LEN}")));
+    assert!(res.bytes().await.unwrap() == big[100_000..300_000]);
+    assert_eq!(mock.asked("/file/big.mp4"), BIG_LEN.div_ceil(95 * 1024) + 3);
+    // No range at all: the whole file, as a 200.
+    let res = client().get(&play.url).send().await.unwrap();
+    assert_eq!((res.status().as_u16(), header(&res, "content-length"), header(&res, "accept-ranges")), (200, BIG_LEN.to_string(), "bytes".into()));
+    assert!(res.bytes().await.unwrap() == big);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_ended_range_goes_on_until_avplayer_hangs_up() {
+    let mock = Mock::start().await;
+    let server = Server::start().await.unwrap();
+    let play = server.open(source(&mock.url("/file/huge.mp4"), None)).await.unwrap();
+    let mut res = client().get(&play.url).header("range", "bytes=0-").send().await.unwrap();
+    assert_eq!((res.status().as_u16(), header(&res, "content-range")), (206, format!("bytes 0-{}/{HUGE_LEN}", HUGE_LEN - 1)));
+    let mut read = Vec::new();
+    while read.len() < 1 << 20 {
+        read.extend_from_slice(&res.chunk().await.unwrap().expect("more of the film"));
+    }
+    assert!(read.iter().enumerate().all(|(i, &b)| b == (i % 251) as u8), "in order");
+    // AVPlayer stops reading (paused, its buffer full): fetching stops too, a few MB ahead at most.
+    let asked = || mock.asked("/file/huge.mp4");
+    let settled = settle(asked).await;
+    eprintln!("a paused reader: {settled} ranges fetched ({} MiB)", settled * 95 / 1024);
+    assert!(settled < 1000, "{settled} ranges for a paused reader");
+    // AVPlayer hangs up: nothing more is fetched.
+    drop(res);
+    let after = settle(asked).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(asked(), after);
+}
+
+/// A count once it stops changing.
+async fn settle(count: impl Fn() -> usize) -> usize {
+    let mut last = count();
+    loop {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let now = count();
+        if now == last {
+            return now;
+        }
+        last = now;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_cookie_stays_with_the_sources_host() {
+    let (home, elsewhere) = (Mock::start().await, Mock::start().await);
+    *home.peer.lock().unwrap() = elsewhere.url("");
+    let server = Server::start().await.unwrap();
+    let play = server.open(source(&home.url("/cross/index.m3u8"), Some(&elsewhere.url("/subs/en.srt")))).await.unwrap();
+    assert!(play.subtitles.is_some());
+    let origin = format!("http://127.0.0.1:{}", server.port());
+    let media = get_text(&play.url).await;
+    for link in media.lines().filter(|l| l.starts_with("/s/")) {
+        assert_eq!(get(&format!("{origin}{link}")).await.0, 200, "{link}");
+    }
+    // The other host got everything but the Cookie (it answers only with the Referer).
+    assert_eq!(home.cookies("/cross/index.m3u8"), [COOKIE]);
+    assert_eq!(home.cookies("/cross/seg0.m4s"), [COOKIE]);
+    assert_eq!(elsewhere.cookies("/hls/video/seg1.m4s"), [""]);
+    assert_eq!(elsewhere.cookies("/subs/en.srt"), [""]);
 }

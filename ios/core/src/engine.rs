@@ -517,7 +517,8 @@ pub struct Playback {
 }
 
 /// `playback` in the core's contract shape. The quality goes along as `max_height`: for MovieBox
-/// all qualities of a film are the same DASH manifest, the cap is what picks among them.
+/// all qualities of a film are the same DASH manifest, the cap is what picks among them. The
+/// subtitle language goes along only when a subtitle file was found in it.
 pub async fn resolve(
     id: &str,
     season: usize,
@@ -526,7 +527,8 @@ pub async fn resolve(
     subtitles: Option<&str>,
 ) -> Result<Source, String> {
     let Playback { source, title } = playback(id, season, episode, stream, subtitles).await?;
-    Ok(Source { url: source.url, headers: source.headers, subtitle_url: source.subtitle, title, max_height: source.max_height })
+    let subtitle_lang = source.subtitle.as_ref().and(subtitles.map(str::trim).filter(|l| !l.is_empty())).map(str::to_string);
+    Ok(Source { url: source.url, headers: source.headers, subtitle_url: source.subtitle, subtitle_lang, title, max_height: source.max_height })
 }
 
 /// Starts stream `stream` of `streams(id, season, episode)` the way the TUI starts a MovieBox

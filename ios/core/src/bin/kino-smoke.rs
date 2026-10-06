@@ -201,16 +201,14 @@ fn resolve_only(net: &Net, id: &str, season: usize, episode: usize) -> Result<()
     let source = step("resolve stream 0 (engine::resolve, subtitles English)", || {
         net.block_on(engine::resolve(id, season, episode, 0, Some(SUBTITLES)))
     })?;
-    // Not part of `Source` (yet): the quality the TUI hands its player as a height cap.
-    let playback = net.block_on(engine::playback(id, season, episode, 0, Some(SUBTITLES)));
-    let cap = playback.ok().and_then(|p| p.source.max_height);
     println!("  title: {}", source.title);
     println!("  url: {}", source.url);
     for (name, value) in &source.headers {
         println!("  {name}: {}", shown_header(name, value));
     }
-    println!("  subtitles: {}", source.subtitle_url.as_deref().map_or("none".to_string(), short_url));
-    println!("  height cap (TUI's max_height): {}", cap.map_or("none".to_string(), |h| h.to_string()));
+    let language = source.subtitle_lang.as_deref().unwrap_or("-");
+    println!("  subtitles: {} ({language})", source.subtitle_url.as_deref().map_or("none".to_string(), short_url));
+    println!("  height cap (TUI's max_height): {}", source.max_height.map_or("none".to_string(), |h| h.to_string()));
 
     let manifest_like = moviebox_like_manifest(&source.url);
     let range = if manifest_like { None } else { Some("bytes=0-1023") };
