@@ -1,0 +1,228 @@
+# The iPhone app (ios/, plan: ios/GUIDE.md). Linux: the Rust core's tests. Mac: the core built for
+# iOS, the SwiftUI app generated with XcodeGen, its tests in the iOS Simulator (search, streams,
+# play: the video must advance) and an unsigned .ipa for AltStore, uploaded only inside a
+# password-protected zip (repo secret IPA_PASSWORD) because the repo is public.
+name: iOS
+
+on:
+  push:
+    branches: [main, ios-app, 'ios-*']
+    paths: ['ios/**', '.github/workflows/ios.yml']
+  workflow_dispatch:
+    inputs:
+      core:
+        description: 'Core: stub (canned titles, Apple test stream) or engine (MovieBox)'
+        type: choice
+        options: [stub, engine]
+        default: stub
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # THE core switch: the core the app is built with on pushes, "stub" or "engine" ("Run workflow"
+  # picks one per run).
+  KINO_CORE: ${{ inputs.core || 'stub' }}
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  core:
+    name: Core tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ios
+          cache-on-failure: true
+
+      - name: Tests (stub core)
+        run: cargo test -p kino-core --no-default-features
+
+      - name: Build with the engine
+        run: cargo build -p kino-core
+
+  ios:
+    name: iPhone app (Simulator tests, unsigned .ipa)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ios/app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ios
+          key: ${{ env.KINO_CORE }}
+          cache-on-failure: true
+
+      - name: Build the core for iOS (${{ env.KINO_CORE }})
+        run: |
+          if [ "$KINO_CORE" = engine ]; then export CORE_FEATURES=""; else export CORE_FEATURES="--no-default-features"; fi
+          bash scripts/build-core.sh
+
+      - name: Generate the Xcode project
+        id: project
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+          HOMEBREW_NO_INSTALL_CLEANUP: 1
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -version
+
+      - name: Start an iPhone simulator
+        id: sim
+        run: |
+          # The newest iOS runtime's iPhones; the last one listed.
+          pick=$(xcrun simctl list devices available -j | jq -r '
+            [ .devices | to_entries[] | select(.key | test("[.]iOS-[0-9]")) | .key as $rt
+              | .value[] | select(.name | startswith("iPhone"))
+              | {udid, name, rt: ($rt | split(".") | last), v: ($rt | [scan("[0-9]+")] | map(tonumber))} ]
+            | sort_by(.v) | last // empty | [.udid, .name, .rt] | join("|")')
+          if [ -z "$pick" ]; then
+            xcrun simctl list devices available
+            echo "::error::No iPhone simulator available"
+            exit 1
+          fi
+          IFS='|' read -r udid name runtime <<< "$pick"
+          echo "Simulator: $name, $runtime ($udid)"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b
+
+      - name: Tests in the Simulator
+        id: tests
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          mkdir -p build
+          if command -v xcbeautify > /dev/null; then fmt="xcbeautify --renderer github-actions"; else fmt=cat; fi
+          # A video of the Simulator's screen while the tests run (best effort).
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force build/simulator.mp4 > build/recording.log 2>&1 &
+          recorder=$!
+          status=0
+          xcodebuild test \
+            -project Kinoteatri.xcodeproj -scheme Kinoteatri \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath build/dd \
+            -resultBundlePath build/KinoteatriTests.xcresult \
+            -parallel-testing-enabled NO \
+            2>&1 | tee build/xcodebuild-test.log | $fmt || status=$?
+          # Ctrl-C finishes the recording's file.
+          kill -INT "$recorder" 2> /dev/null || true
+          for _ in $(seq 1 15); do kill -0 "$recorder" 2> /dev/null || break; sleep 1; done
+          kill -9 "$recorder" 2> /dev/null || true
+          grep -h "\[kino\]" build/xcodebuild-test.log || true
+          exit "$status"
+
+      - name: Export the test attachments
+        if: always() && steps.tests.outcome != 'skipped'
+        run: |
+          [ -d build/KinoteatriTests.xcresult ] || exit 0
+          out=build/attachments
+          xcrun xcresulttool export attachments --path build/KinoteatriTests.xcresult --output-path "$out" || exit 0
+          # Human names (the export names files by UUID).
+          jq -r '.[].attachments[] | [.exportedFileName, .suggestedHumanReadableName] | join("|")' "$out/manifest.json" 2> /dev/null |
+            while IFS='|' read -r file name; do [ -n "$name" ] && cp "$out/$file" "$out/$name"; done || true
+          ls -la "$out"
+          for f in "$out"/summary*; do [ -f "$f" ] && { echo "== $f"; cat "$f"; echo; }; done
+
+      - name: Keep the test results
+        if: always() && steps.tests.outcome != 'skipped'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-tests-${{ env.KINO_CORE }}
+          path: |
+            ios/app/build/attachments/
+            ios/app/build/simulator.mp4
+            ios/app/build/*.log
+            ios/app/build/KinoteatriTests.xcresult/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Unsigned device build (.ipa)
+        if: ${{ !cancelled() && steps.project.outcome == 'success' }}
+        run: |
+          if command -v xcbeautify > /dev/null; then fmt="xcbeautify --renderer github-actions"; else fmt=cat; fi
+          xcodebuild build \
+            -project Kinoteatri.xcodeproj -scheme Kinoteatri \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            2>&1 | tee build/xcodebuild-device.log | $fmt
+          rm -rf build/ipa build/Kinoteatri.ipa
+          mkdir -p build/ipa/Payload
+          cp -R build/dd/Build/Products/Release-iphoneos/Kinoteatri.app build/ipa/Payload/
+          (cd build/ipa && zip -qry ../Kinoteatri.ipa Payload)
+          ls -l build/Kinoteatri.ipa
+          du -sh build/ipa/Payload/Kinoteatri.app
+
+      - name: Password-protect the .ipa
+        id: ipa
+        if: steps.tests.outcome == 'success'
+        env:
+          IPA_PASSWORD: ${{ secrets.IPA_PASSWORD }}
+        run: |
+          if [ -z "$IPA_PASSWORD" ]; then
+            echo "::notice::The repo secret IPA_PASSWORD isn't set, so the .ipa is not uploaded (the repo is public)."
+            exit 0
+          fi
+          (cd build && zip -q -P "$IPA_PASSWORD" Kinoteatri-ipa.zip Kinoteatri.ipa)
+          echo "zip=ios/app/build/Kinoteatri-ipa.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the .ipa (password-protected zip, 3 days)
+        if: steps.ipa.outputs.zip != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: Kinoteatri-ipa-${{ env.KINO_CORE }}
+          path: ${{ steps.ipa.outputs.zip }}
+          retention-days: 3
+          compression-level: 0
+
+  # Does the real engine compile for iOS? Information only (never fails the run); skipped when the
+  # app is built with the engine anyway.
+  engine-ios:
+    name: Engine for iOS (compile check)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - if: env.KINO_CORE != 'engine'
+        uses: actions/checkout@v5
+      - if: env.KINO_CORE != 'engine'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - if: env.KINO_CORE != 'engine'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ios
+          cache-on-failure: true
+
+      - name: Build kino-core with the engine for the iOS Simulator
+        if: env.KINO_CORE != 'engine'
+        env:
+          IPHONEOS_DEPLOYMENT_TARGET: '16.0'
+        # The note "native-static-libs" lists the system libraries the app must link for the engine.
+        run: cargo rustc -p kino-core --lib --release --target aarch64-apple-ios-sim -- --print native-static-libs

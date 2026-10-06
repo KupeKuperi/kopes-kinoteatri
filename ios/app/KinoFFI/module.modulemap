@@ -1,0 +1,6 @@
+// The core's C API (ios/core/include/kino.h) as a Swift module: `import KinoFFI`.
+// Found through SWIFT_INCLUDE_PATHS (project.yml); the library itself is KinoCore.xcframework.
+module KinoFFI {
+    header "../../core/include/kino.h"
+    export *
+}
