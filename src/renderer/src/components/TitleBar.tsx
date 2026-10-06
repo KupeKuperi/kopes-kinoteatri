@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, History, Search } from 'lucide-react';
 import type { ResultItem, ResultsView, Suggestion } from '@shared/types';
 import { imageUrl, mb } from '@/lib/api';
-import { isMac, keyNames } from '@/lib/platform';
+import { q as quote, t, tm, tn, useLang } from '@/lib/i18n';
+import { isMac, isTouch, isWeb, keyNames } from '@/lib/platform';
 import { useStore } from '@/lib/store';
 import { Kbd, Spinner } from './ui';
 
@@ -26,6 +27,27 @@ function Thumb({ src, title }: { src?: string; title: string }) {
   );
 }
 
+/** ქარ | ENG: the window's language, switched at once and remembered. */
+export function LanguageToggle({ className = '' }: { className?: string }) {
+  const lang = useLang((s) => s.lang);
+  const setLang = useLang((s) => s.setLang);
+  return (
+    <div role="group" aria-label={t('Language')} className={`no-drag flex h-8 shrink-0 items-center rounded-lg border border-seam bg-velvet p-0.5 ${className}`}>
+      {(['ka', 'en'] as const).map((l) => (
+        <button
+          key={l}
+          aria-pressed={lang === l}
+          title={l === 'ka' ? t('Switch to Georgian') : t('Switch to English')}
+          onClick={() => setLang(l)}
+          className={`h-full rounded-md px-2 font-mono text-[10.5px] tracking-wider transition-colors max-md:px-1.5 max-md:text-[10px] ${lang === l ? 'bg-curtain text-bulb' : 'text-usher hover:text-screen'}`}
+        >
+          {l === 'ka' ? 'ქარ' : 'ENG'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function TitleBar() {
   const search = useStore((s) => s.search);
   const openTitle = useStore((s) => s.openTitle);
@@ -34,6 +56,7 @@ export function TitleBar() {
   const providers = useStore((s) => s.providers);
   const provider = useStore((s) => s.status?.provider);
   const setProvider = useStore((s) => s.setProvider);
+  const streamAddons = useStore((s) => s.env?.streamAddons.length ?? 0);
   // Only searches put their text in the box (not Discover or IMDb list names).
   const lastQuery = useStore((s) => (s.results?.source === 'search' ? s.results.requested ?? s.results.label : null));
 
@@ -145,9 +168,16 @@ export function TitleBar() {
     return () => window.removeEventListener('mousedown', close);
   }, [menu]);
 
+  // Without an add-on that provides streams, the Addons source can only list titles.
+  const sources = providers.filter((p) => p.toLowerCase() !== 'addons' || streamAddons > 0 || p === provider);
+
   let section = '';
   const heading = (row: Row) => {
-    const name = row.kind === 'live' ? `From ${provider ?? 'MovieBox'}` : row.kind === 'known' ? 'Similar titles' : row.kind === 'recent' ? 'Recent searches' : '';
+    const name =
+      row.kind === 'live' ? t('Found on {source}', { source: provider ?? 'MovieBox' })
+      : row.kind === 'known' ? t('Similar titles')
+      : row.kind === 'recent' ? t('Recent searches')
+      : '';
     if (!name || name === section) return null;
     section = name;
     return <div className="px-3 pb-1 pt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-dim">{name}</div>;
@@ -155,13 +185,19 @@ export function TitleBar() {
 
   return (
     // macOS draws its window buttons at the left of this bar, Windows its caption buttons at the right.
-    <header className={`drag flex h-11 shrink-0 items-center gap-4 border-b border-seam/60 bg-house ${isMac ? 'pl-24 pr-5' : 'pl-5 pr-[150px]'}`}>
-      <div className="w-[176px] shrink-0 whitespace-nowrap font-display text-[17px] font-extrabold uppercase leading-none tracking-[0.08em]">
-        Kope's <span className="text-bulb">Kinoteatri</span>
+    <header
+      className={`flex shrink-0 items-center border-b border-seam/60 bg-house ${
+        // A phone's browser: room for its status bar; the desktop: room for the window buttons.
+        isWeb ? 'gap-2 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] md:gap-4 md:px-5' : `drag h-11 gap-4 ${isMac ? 'pl-24 pr-5' : 'pl-5 pr-[150px]'}`
+      }`}
+    >
+      <div className="w-[176px] shrink-0 whitespace-nowrap font-display text-[17px] font-extrabold uppercase leading-none tracking-[0.08em] max-md:hidden">
+        {t("Kope's")} <span className="text-bulb">{t('Kinoteatri')}</span>
       </div>
-      <div className="no-drag relative mx-auto w-full max-w-[560px]">
+      {/* min-w-0: on a phone the box gives way, so the bar never gets wider than the screen. */}
+      <div className="no-drag relative mx-auto w-full min-w-0 max-w-[560px]">
         <form
-          className={`flex h-8 items-center gap-2 border border-seam bg-velvet px-3 ${open ? 'rounded-t-lg border-bulb/60' : 'rounded-lg'} focus-within:border-bulb/60`}
+          className={`flex h-8 items-center gap-2 border border-seam bg-velvet px-3 max-md:h-10 ${open ? 'rounded-t-lg border-bulb/60' : 'rounded-lg'} focus-within:border-bulb/60`}
           onSubmit={(e) => {
             e.preventDefault();
             activate(rows[active] ?? (q.trim() ? { kind: 'search', text: q.trim() } : undefined));
@@ -176,16 +212,17 @@ export function TitleBar() {
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             onKeyDown={onKeyDown}
-            placeholder="Search movies, series & anime"
+            placeholder={t('Search movies, series & anime')}
             spellCheck={false}
             autoComplete="off"
             role="combobox"
             aria-expanded={open}
             aria-controls="search-suggestions"
             aria-activedescendant={open ? `suggestion-${active}` : undefined}
-            className="h-full min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-dim"
+            // 16 px on phones: a smaller font makes iOS zoom the page in on every tap.
+            className="h-full min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-dim max-md:text-[16px]"
           />
-          {liveLoading ? <Spinner /> : <Kbd>{keyNames.command} K</Kbd>}
+          {liveLoading ? <Spinner /> : !isWeb && !isTouch && <Kbd>{keyNames.command} K</Kbd>}
         </form>
 
         {open && (
@@ -193,7 +230,7 @@ export function TitleBar() {
             id="search-suggestions"
             role="listbox"
             onMouseDown={(e) => e.preventDefault()}
-            className="absolute inset-x-0 top-8 z-50 max-h-[70vh] overflow-y-auto rounded-b-xl border border-t-0 border-bulb/60 bg-velvet pb-1.5 shadow-2xl"
+            className="absolute inset-x-0 top-8 z-50 max-h-[70vh] overflow-y-auto rounded-b-xl border border-t-0 border-bulb/60 bg-velvet pb-1.5 shadow-2xl max-md:top-10"
           >
             {rows.map((row, i) => (
               <div key={i}>
@@ -210,9 +247,9 @@ export function TitleBar() {
                     <>
                       <Search size={15} className="shrink-0 text-bulb" />
                       <span className="min-w-0 flex-1 truncate text-[13.5px]">
-                        Search for <span className="font-semibold">“{row.text}”</span>
+                        {tn('Search for {query}', { query: <span className="font-semibold">{quote(row.text)}</span> })}
                       </span>
-                      <Kbd>Enter</Kbd>
+                      {!isWeb && !isTouch && <Kbd>Enter</Kbd>}
                     </>
                   )}
                   {row.kind === 'recent' && (
@@ -222,15 +259,15 @@ export function TitleBar() {
                     </>
                   )}
                   {(row.kind === 'live' || row.kind === 'known') && (() => {
-                    const t = row.kind === 'live' ? row.item : row.s;
+                    const it = row.kind === 'live' ? row.item : row.s;
                     const kind = row.kind === 'live' ? row.item.type : row.s.kind;
                     return (
                       <>
-                        <Thumb src={t.cover} title={t.title} />
+                        <Thumb src={it.cover} title={it.title} />
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13.5px] font-semibold">{t.title}</span>
+                          <span className="block truncate text-[13.5px] font-semibold">{it.title}</span>
                           <span className="block font-mono text-[10.5px] uppercase tracking-wider text-usher">
-                            {[t.year, kind, row.kind === 'live' && row.item.rating ? `★ ${row.item.rating}` : undefined].filter(Boolean).join(' · ')}
+                            {[it.year, kind && tm(kind), row.kind === 'live' && row.item.rating ? `★ ${row.item.rating}` : undefined].filter(Boolean).join(' · ')}
                           </span>
                         </span>
                       </>
@@ -241,25 +278,25 @@ export function TitleBar() {
             ))}
             {liveLoading && q.trim().length >= 3 && (
               <div className="flex items-center gap-2 px-3 py-2 font-mono text-[11px] text-usher">
-                <Spinner /> Searching {provider ?? 'MovieBox'}…
+                <Spinner /> {t('Searching {source}…', { source: provider ?? 'MovieBox' })}
               </div>
             )}
           </div>
         )}
       </div>
-      {providers.length > 1 && (
-        <div ref={menuRef} className="no-drag relative">
+      {sources.length > 1 && (
+        <div ref={menuRef} className="no-drag relative shrink-0">
           <button
             onClick={() => setMenu(!menu)}
-            className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 font-mono text-[11px] uppercase tracking-wider text-usher hover:bg-velvet hover:text-screen"
-            title="Streaming source"
+            className="flex h-8 items-center gap-1.5 rounded-lg px-2.5 font-mono text-[11px] uppercase tracking-wider text-usher hover:bg-velvet hover:text-screen max-md:gap-0.5 max-md:px-1 max-md:text-[10px]"
+            title={t('Streaming source')}
           >
-            {provider ?? providers[0]}
-            <ChevronDown size={13} />
+            <span className="max-w-[110px] truncate max-md:max-w-[64px]">{provider ?? sources[0]}</span>
+            <ChevronDown size={13} className="shrink-0" />
           </button>
           {menu && (
             <div className="absolute right-0 top-9 z-50 w-44 overflow-hidden rounded-lg border border-seam bg-velvet py-1 shadow-2xl animate-rise">
-              {providers.map((p) => (
+              {sources.map((p) => (
                 <button
                   key={p}
                   onClick={() => {
@@ -269,13 +306,14 @@ export function TitleBar() {
                   className={`flex w-full items-center justify-between px-3 py-2 text-left text-[13px] hover:bg-curtain ${p === provider ? 'text-bulb' : ''}`}
                 >
                   {p}
-                  {p === provider && <span className="font-mono text-[10px]">ACTIVE</span>}
+                  {p === provider && <span className="font-mono text-[10px] uppercase">{t('ACTIVE')}</span>}
                 </button>
               ))}
             </div>
           )}
         </div>
       )}
+      <LanguageToggle />
     </header>
   );
 }

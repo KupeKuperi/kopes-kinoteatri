@@ -1,0 +1,6 @@
+[
+  {"eval": "window.mb.peekDetails().then(d => 'open in the engine: ' + (d ? d.state.title + ' · ' + d.streams.length + ' streams' : 'nothing'))"},
+  {"eval": "window.mb.play(0).then(() => 'DESKTOP PLAY WITH PHONE ACCESS ON returned', e => 'desktop play failed: ' + e.message)"},
+  {"wait": 8000},
+  {"evalFile": "probe/js/toasts.js"}
+]

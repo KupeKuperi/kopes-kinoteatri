@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Subtitles } from 'lucide-react';
+import { t, tm } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { Button, Eyebrow } from './ui';
 
@@ -24,14 +25,14 @@ export function SubtitleChooser() {
 
   if (!choice) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-house/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Choose subtitles">
-      <div ref={box} data-nav-scope="dialog" className="max-h-[82vh] w-[520px] overflow-y-auto rounded-2xl border border-seam bg-velvet p-7 shadow-2xl animate-rise">
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-house/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={t('Choose subtitles')}>
+      <div ref={box} data-nav-scope="dialog" className="max-h-[82vh] w-[520px] overflow-y-auto rounded-2xl border border-seam bg-velvet p-7 shadow-2xl animate-rise max-md:w-[calc(100vw-24px)] max-md:p-5">
         <Eyebrow className="flex items-center gap-2">
-          <Subtitles size={14} /> {choice.purpose === 'download' ? 'Before downloading' : 'Before playing'}
+          <Subtitles size={14} /> {choice.purpose === 'download' ? t('Before downloading') : t('Before playing')}
         </Eyebrow>
-        <h2 className="mt-2 font-display text-[32px] font-extrabold uppercase leading-[0.95] tracking-wide">{choice.title || 'Subtitles'}</h2>
+        <h2 className="mt-2 font-display text-[32px] font-extrabold uppercase leading-[0.95] tracking-wide">{choice.title || t('Subtitles')}</h2>
         <p className="mt-2 text-[13px] leading-relaxed text-usher">
-          Which subtitles should {choice.purpose === 'download' ? 'be saved with the video' : 'load into the player'}?
+          {choice.purpose === 'download' ? t('Which subtitles should be saved with the video?') : t('Which subtitles should load into the player?')}
         </p>
         <div className="mt-5 grid grid-cols-2 gap-2">
           {options.map((o, i) => (
@@ -42,14 +43,14 @@ export function SubtitleChooser() {
               className="!justify-start"
               onClick={() => void choose(i)}
             >
-              {o}
+              {tm(o)}
             </Button>
           ))}
         </div>
         <div className="mt-6 flex items-center justify-between gap-3 border-t border-seam/70 pt-4">
-          <span className="text-[12px] leading-snug text-dim">Settings → Playback sets the language picked without asking.</span>
+          <span className="text-[12px] leading-snug text-dim">{t('Settings → Playback sets the language picked without asking.')}</span>
           <Button variant="quiet" onClick={() => void choose(-1)}>
-            Cancel
+            {t('Cancel')}
           </Button>
         </div>
       </div>

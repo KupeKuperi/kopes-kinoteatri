@@ -20,9 +20,9 @@
   --color-ok: #7ed6a0;
   --color-err: #ff7a6b;
 
-  --font-display: 'Big Shoulders Display', 'Bahnschrift', sans-serif;
-  --font-sans: 'Hanken Grotesk Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'Martian Mono', 'Cascadia Mono', ui-monospace, monospace;
+  --font-display: 'Big Shoulders Display', 'Kino Georgian', 'Bahnschrift', sans-serif;
+  --font-sans: 'Hanken Grotesk Variable', 'Kino Georgian', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Martian Mono', 'Kino Georgian', 'Cascadia Mono', ui-monospace, monospace;
 
   --animate-shimmer: shimmer 1.6s ease-in-out infinite;
   --animate-rise: rise 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
@@ -81,6 +81,42 @@ button {
   outline: 2px solid var(--color-bulb);
   outline-offset: 2px;
 }
+}
+
+/* Georgian. The Latin faces have no Georgian letters, so every stack falls back to Noto Sans
+   Georgian (scripts/make-georgian-fonts.py). Browsers leave Georgian alone under
+   text-transform: uppercase, so uppercase text takes a copy of the font that draws each letter as
+   its capital (Mtavruli); the text itself stays ordinary Georgian. Headings narrow it to match the
+   condensed Latin display face, which has one width, so font-stretch changes only the Georgian. */
+@font-face {
+  font-family: 'Kino Georgian';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62.5% 100%;
+  font-display: swap;
+  src: url('./assets/fonts/kino-georgian.woff2') format('woff2');
+  unicode-range: U+0589, U+10A0-10FF, U+1C90-1CBA, U+1CBD-1CBF, U+205A, U+2D00-2D2F, U+2E31;
+}
+@font-face {
+  font-family: 'Kino Georgian Caps';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62.5% 100%;
+  font-display: swap;
+  src: url('./assets/fonts/kino-georgian-caps.woff2') format('woff2');
+  unicode-range: U+0589, U+10A0-10FF, U+1C90-1CBA, U+1CBD-1CBF, U+205A, U+2D00-2D2F, U+2E31;
+}
+.font-display {
+  font-stretch: 72%;
+}
+.uppercase.font-display {
+  font-family: 'Big Shoulders Display', 'Kino Georgian Caps', 'Bahnschrift', sans-serif;
+}
+.uppercase.font-mono {
+  font-family: 'Martian Mono', 'Kino Georgian Caps', 'Cascadia Mono', ui-monospace, monospace;
+}
+.uppercase.font-sans {
+  font-family: 'Hanken Grotesk Variable', 'Kino Georgian Caps', 'Segoe UI', system-ui, sans-serif;
 }
 
 /* Signature: the focused poster is ringed with marquee bulbs. */

@@ -65,11 +65,12 @@ def perimeter_points(x0, y0, x1, y1, r, count):
     return points
 
 
-def draw(size: int) -> Image.Image:
+def draw(size: int, full_bleed: bool = False) -> Image.Image:
+    """The icon; `full_bleed` fills the square edge to edge (phones round the corners themselves)."""
     s = 1024  # supersample, then downscale
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    margin = s * 0.04
-    radius = s * 0.22
+    margin = 0 if full_bleed else s * 0.04
+    radius = 0 if full_bleed else s * 0.22
 
     # Velvet tile with a vertical sheen.
     tile = Image.new("RGBA", (s, s), (0, 0, 0, 0))
@@ -89,7 +90,7 @@ def draw(size: int) -> Image.Image:
         count = 22 if size >= 64 else 14
         bulb_r = s * (0.026 if size >= 64 else 0.04)
         inset = s * 0.135
-        pts = perimeter_points(inset, inset, s - inset, s - inset, radius * 0.62, count)
+        pts = perimeter_points(inset, inset, s - inset, s - inset, (radius or s * 0.22) * 0.62, count)
         glow = Image.new("RGBA", (s, s), (0, 0, 0, 0))
         gd = ImageDraw.Draw(glow)
         for x, y in pts:
@@ -131,7 +132,12 @@ def main():
     sizes = [256, 128, 64, 48, 32, 24, 16]
     frames = [draw(n) for n in sizes]
     frames[0].save(OUT / "icon.ico", format="ICO", sizes=[(n, n) for n in sizes], append_images=frames[1:])
-    print("wrote", OUT / "icon.png", OUT / "icon.ico", "and", OUT / "icon-mac.png")
+    # Home-screen icons for phone access (served by the app's phone server).
+    public = ROOT / "src" / "renderer" / "public"
+    public.mkdir(parents=True, exist_ok=True)
+    draw(180, full_bleed=True).convert("RGB").save(public / "apple-touch-icon.png")
+    draw(512, full_bleed=True).convert("RGB").save(public / "icon-512.png")
+    print("wrote", OUT / "icon.png", OUT / "icon.ico", OUT / "icon-mac.png", "and the phone icons in", public)
 
 
 if __name__ == "__main__":

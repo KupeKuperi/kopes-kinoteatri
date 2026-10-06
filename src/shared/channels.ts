@@ -1,0 +1,108 @@
+// Which main-process channel answers each `window.mb` method. The desktop window reaches them over
+// Electron IPC (preload), a phone's browser over HTTP (renderer/lib/web-bridge.ts).
+import type { MbApi } from './api';
+
+type Calls = Exclude<keyof MbApi, 'platform' | 'imageBase' | 'consoleInput' | 'on'>;
+
+export const CHANNELS = {
+  status: 'app:status',
+  restartEngine: 'engine:restart',
+  consoleSnapshot: 'engine:snapshot',
+  installEngine: 'engine:install',
+  installTool: 'tools:install',
+  chooseSubtitle: 'subtitles:choose',
+
+  search: 'search',
+  suggest: 'suggest',
+  suggestLive: 'suggest:live',
+  browseCategories: 'browse:categories',
+  imdbList: 'imdb:list',
+  imdbRatings: 'imdb:ratings',
+  browse: 'browse',
+  providers: 'providers:list',
+  setProvider: 'providers:set',
+
+  open: 'details:open',
+  openTitle: 'details:open-title',
+  peekDetails: 'details:peek',
+  selectAudio: 'details:audio',
+  selectSeason: 'details:season',
+  selectEpisode: 'details:episode',
+  play: 'play',
+  download: 'download',
+  toggleFavorite: 'favorite:toggle',
+  cancelDownloads: 'downloads:cancel',
+
+  library: 'library:get',
+  resume: 'history:resume',
+  removeFromHistory: 'history:remove',
+  openFavorite: 'favorite:open',
+
+  downloads: 'downloads:list',
+  deleteUnfinished: 'downloads:delete-unfinished',
+  openPath: 'shell:open',
+  revealPath: 'shell:reveal',
+  pickFolder: 'dialog:folder',
+  pickFile: 'dialog:file',
+
+  tv: 'tv:get',
+  tvAddPlaylist: 'tv:add',
+  tvRemovePlaylist: 'tv:remove',
+  tvPlay: 'tv:play',
+  tvLeave: 'tv:leave',
+
+  addons: 'addons:list',
+  addAddon: 'addons:add',
+  removeAddon: 'addons:remove',
+  setAddonEnabled: 'addons:enable',
+
+  settings: 'settings:get',
+  saveSettings: 'settings:save',
+
+  phone: 'phone:get',
+  setPhone: 'phone:set',
+  phonePlay: 'phone:play',
+  phoneResume: 'phone:resume',
+  phoneTv: 'phone:tv',
+  phoneProgress: 'phone:progress',
+  phoneStop: 'phone:stop',
+} as const satisfies Record<Calls, string>;
+
+/** What a paired phone may call: everything for finding and watching, nothing that changes the computer. */
+export const PHONE_CHANNELS: ReadonlySet<string> = new Set([
+  CHANNELS.status,
+  CHANNELS.chooseSubtitle,
+  CHANNELS.search,
+  CHANNELS.suggest,
+  CHANNELS.suggestLive,
+  CHANNELS.browseCategories,
+  CHANNELS.imdbList,
+  CHANNELS.imdbRatings,
+  CHANNELS.browse,
+  CHANNELS.providers,
+  CHANNELS.setProvider,
+  CHANNELS.open,
+  CHANNELS.openTitle,
+  CHANNELS.peekDetails,
+  CHANNELS.selectAudio,
+  CHANNELS.selectSeason,
+  CHANNELS.selectEpisode,
+  CHANNELS.play,
+  CHANNELS.download,
+  CHANNELS.toggleFavorite,
+  CHANNELS.cancelDownloads,
+  CHANNELS.library,
+  CHANNELS.resume,
+  CHANNELS.removeFromHistory,
+  CHANNELS.openFavorite,
+  CHANNELS.downloads,
+  CHANNELS.tv,
+  CHANNELS.tvPlay,
+  CHANNELS.tvLeave,
+  CHANNELS.settings,
+  CHANNELS.phonePlay,
+  CHANNELS.phoneResume,
+  CHANNELS.phoneTv,
+  CHANNELS.phoneProgress,
+  CHANNELS.phoneStop,
+]);

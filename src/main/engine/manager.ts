@@ -39,6 +39,8 @@ export class EngineManager extends EventEmitter {
   /** start/stop/restart run one at a time (double clicks, crash restarts, settings saves). */
   private lifecycle: Promise<void> = Promise.resolve();
   private generation = 0;
+  /** Extra environment for the engine, read each time it starts (phone access sets its players). */
+  extraEnv: () => Record<string, string> = () => ({});
 
   constructor(
     readonly cache: CacheIndex,
@@ -124,7 +126,7 @@ export class EngineManager extends EventEmitter {
     }
     this.originalMode ??= (readTuiConfigRaw()?.active_mode as string | undefined) ?? null;
 
-    const session = new EngineSession(binary.path);
+    const session = new EngineSession(binary.path, this.extraEnv());
     if (!this.driver) {
       const driver = new Driver(session, this.cache, () => this.gui().subtitles);
       driver.on('activity', (activity: string | null) => this.setStatus({ activity }));

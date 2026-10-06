@@ -27,6 +27,22 @@ export interface EnvironmentInfo {
   ytDlp: string | null;
   ffmpeg: string | null;
   players: { vlc: string | null; mpv: string | null; iina: string | null };
+  /** Enabled add-ons that provide streams: without one the Addons source finds titles but can't play them. */
+  streamAddons: string[];
+}
+
+/** A Stremio add-on the engine's Addons source uses (addons_config.json). */
+export interface AddonInfo {
+  /** Manifest link; identifies the add-on. */
+  url: string;
+  name: string;
+  version?: string;
+  description?: string;
+  enabled: boolean;
+  /** Cinemeta: the engine always keeps it, since it finds the titles. */
+  core: boolean;
+  catalog: boolean;
+  streams: boolean;
 }
 
 // ── Search / browse ─────────────────────────────────────────────────────────
@@ -298,6 +314,44 @@ export interface GuiSettings {
    * 'ask' to choose every time. A language the title doesn't have also asks.
    */
   subtitles: string;
+  /** Phone access: phones on the same network open the app in their browser and can watch there. */
+  phone?: PhoneSettings;
+}
+
+export interface PhoneSettings {
+  enabled: boolean;
+  port: number;
+  /** The pairing key in the QR code; a new key unpairs every phone. */
+  key: string;
+}
+
+/** Phone access as Settings shows it. */
+export interface PhoneInfo {
+  enabled: boolean;
+  port: number;
+  /** Addresses a phone can open (with the pairing key), best guess first. */
+  urls: Array<{ url: string; label: string }>;
+  /** Why the server isn't listening (the port is taken, say), when it should be. */
+  error: string | null;
+  /** Phones watching right now. */
+  watching: number;
+}
+
+/** A play the engine handed to a phone: where the phone's player finds it. */
+export interface PhoneSession {
+  id: string;
+  /** The phone that asked for it. */
+  device: string;
+  title: string;
+  /** 'hls' playlists (DASH and HLS sources) or the video 'file' itself. */
+  kind: 'hls' | 'file';
+  src: string;
+  /** WebVTT subtitles, for file plays (HLS plays carry them in their playlist). */
+  subtitles?: string;
+  /** Seconds to resume at. */
+  start: number;
+  /** Live TV: no end and no seeking. */
+  live: boolean;
 }
 
 export interface SettingsBundle {
@@ -322,6 +376,8 @@ export type EngineEvent =
   | { type: 'details'; payload: DetailsView }
   | { type: 'results'; payload: ResultsView }
   | { type: 'subtitles'; payload: SubtitleChoice | null }
+  | { type: 'phone-play'; payload: PhoneSession }
+  | { type: 'phone-end'; payload: { id: string } }
   /** Progress of installing the engine (a step to show), or null when it's done. */
   | { type: 'setup'; payload: string | null }
   | { type: 'console-data'; payload: string };

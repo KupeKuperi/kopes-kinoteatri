@@ -1,5 +1,6 @@
 // The API the preload script exposes to the renderer as `window.mb`.
 import type {
+  AddonInfo,
   BrowseCategory,
   DetailsView,
   DownloadFile,
@@ -10,6 +11,7 @@ import type {
   FavoriteEntry,
   GuiSettings,
   HistoryEntry,
+  PhoneInfo,
   ImdbRating,
   LibrarySnapshot,
   ResultsView,
@@ -29,6 +31,8 @@ export interface TitleRef {
 
 export interface MbApi {
   platform: string;
+  /** Set in a phone's browser: where posters are served (the desktop window uses `mbimg://`). */
+  imageBase?: string;
   status(): Promise<{ status: EngineStatus; env: EnvironmentInfo }>;
   restartEngine(): Promise<void>;
   consoleSnapshot(): Promise<string>;
@@ -85,6 +89,25 @@ export interface MbApi {
   tvRemovePlaylist(source: string): Promise<TvView>;
   tvPlay(name: string, group?: string): Promise<void>;
   tvLeave(): Promise<void>;
+
+  /** Stremio add-ons (the Addons source). Changing them restarts the engine. */
+  addons(): Promise<AddonInfo[]>;
+  /** `slow`: seconds the add-on took to list streams, when that is more than the engine waits. */
+  addAddon(url: string): Promise<{ addons: AddonInfo[]; added: AddonInfo; slow?: number }>;
+  removeAddon(url: string): Promise<AddonInfo[]>;
+  setAddonEnabled(url: string, enabled: boolean): Promise<AddonInfo[]>;
+
+  /** Phone access (Settings on the computer). */
+  phone(): Promise<PhoneInfo>;
+  setPhone(patch: { enabled?: boolean; newKey?: boolean }): Promise<PhoneInfo>;
+  /** From a phone: plays stream `streamIndex` of the open title there (`device` = that phone). */
+  phonePlay(device: string, streamIndex: number, title: string): Promise<DetailsView>;
+  phoneResume(device: string, entry: HistoryEntry): Promise<void>;
+  phoneTv(device: string, name: string, group?: string): Promise<void>;
+  /** The phone's player is still open (also while paused). */
+  phoneProgress(session: string, position: number, paused: boolean): Promise<void>;
+  /** The phone closed its player. */
+  phoneStop(session: string): Promise<void>;
 
   settings(): Promise<SettingsBundle>;
   saveSettings(patch: { tui?: Partial<TuiSettings>; gui?: Partial<GuiSettings> }): Promise<SettingsBundle>;

@@ -32,36 +32,41 @@ function isPrivateHost(url: string): boolean {
 
 const TYPES: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', svg: 'image/svg+xml' };
 
-export function handleImageScheme(): void {
-  const dir = path.join(app.getPath('userData'), 'image-cache');
-  fs.mkdirSync(dir, { recursive: true });
+let cacheDir: string | null = null;
 
-  protocol.handle(IMAGE_SCHEME, async (request) => {
-    // mbimg://img/<encodeURIComponent(url)>
-    const target = decodeURIComponent(new URL(request.url).pathname.slice(1));
-    if (!/^https?:\/\//i.test(target) || isPrivateHost(target)) return new Response(null, { status: 400 });
-    const ext = /\.(jpe?g|png|webp|gif|svg)(?:$|\?)/i.exec(target)?.[1]?.toLowerCase() ?? 'jpg';
-    const file = path.join(dir, crypto.createHash('sha1').update(target).digest('hex') + '.' + ext);
-    const headers = { 'content-type': TYPES[ext] ?? 'image/jpeg', 'cache-control': 'max-age=604800' };
-    try {
-      return new Response(await fs.promises.readFile(file), { headers });
-    } catch {
-      /* not cached yet */
-    }
-    try {
-      const res = await net.fetch(target, { signal: AbortSignal.timeout(15000) });
-      if (!res.ok) return new Response(null, { status: res.status });
-      const body = Buffer.from(await res.arrayBuffer());
-      if (body.length > MAX_IMAGE_BYTES) return new Response(null, { status: 413 });
-      // Write to a temp name first so a crash can't leave a truncated image in the cache.
-      const tmp = `${file}.${process.pid}.tmp`;
-      void fs.promises
-        .writeFile(tmp, body)
-        .then(() => fs.promises.rename(tmp, file))
-        .catch(() => fs.promises.rm(tmp, { force: true }).catch(() => undefined));
-      return new Response(body, { headers: { ...headers, 'content-type': res.headers.get('content-type') ?? headers['content-type'] } });
-    } catch {
-      return new Response(null, { status: 502 });
-    }
-  });
+/** A poster or logo from the internet, through the disk cache (the window's mbimg:// and the phone's /img/). */
+export async function cachedImage(target: string): Promise<Response> {
+  if (!/^https?:\/\//i.test(target) || isPrivateHost(target)) return new Response(null, { status: 400 });
+  if (!cacheDir) {
+    cacheDir = path.join(app.getPath('userData'), 'image-cache');
+    fs.mkdirSync(cacheDir, { recursive: true });
+  }
+  const ext = /\.(jpe?g|png|webp|gif|svg)(?:$|\?)/i.exec(target)?.[1]?.toLowerCase() ?? 'jpg';
+  const file = path.join(cacheDir, crypto.createHash('sha1').update(target).digest('hex') + '.' + ext);
+  const headers = { 'content-type': TYPES[ext] ?? 'image/jpeg', 'cache-control': 'max-age=604800' };
+  try {
+    return new Response(await fs.promises.readFile(file), { headers });
+  } catch {
+    /* not cached yet */
+  }
+  try {
+    const res = await net.fetch(target, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return new Response(null, { status: res.status });
+    const body = Buffer.from(await res.arrayBuffer());
+    if (body.length > MAX_IMAGE_BYTES) return new Response(null, { status: 413 });
+    // Write to a temp name first so a crash can't leave a truncated image in the cache.
+    const tmp = `${file}.${process.pid}.tmp`;
+    void fs.promises
+      .writeFile(tmp, body)
+      .then(() => fs.promises.rename(tmp, file))
+      .catch(() => fs.promises.rm(tmp, { force: true }).catch(() => undefined));
+    return new Response(body, { headers: { ...headers, 'content-type': res.headers.get('content-type') ?? headers['content-type'] } });
+  } catch {
+    return new Response(null, { status: 502 });
+  }
+}
+
+export function handleImageScheme(): void {
+  // mbimg://img/<encodeURIComponent(url)>
+  protocol.handle(IMAGE_SCHEME, (request) => cachedImage(decodeURIComponent(new URL(request.url).pathname.slice(1))));
 }

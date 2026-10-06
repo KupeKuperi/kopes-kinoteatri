@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Download, Play, Star, Subtitles } from 'lucide-react';
+import { Download, Monitor, Play, Star, Subtitles } from 'lucide-react';
 import type { DetailsView, ImdbRating, StreamOption } from '@shared/types';
 import { formatBytes, imageUrl, imdbPoster, mb } from '@/lib/api';
+import { q, t, tm } from '@/lib/i18n';
 import { isTyping } from '@/lib/nav';
+import { isWeb } from '@/lib/platform';
 import { useRoute, useStore } from '@/lib/store';
 import { Poster } from '@/components/Poster';
 import { Button, Chip, ErrorPanel, Eyebrow, Spinner } from '@/components/ui';
@@ -26,15 +28,15 @@ function Loading() {
   const tuiStatus = useStore((s) => s.status?.tuiStatus);
   const activity = useStore((s) => s.status?.activity);
   return (
-    <div className="relative isolate p-8">
+    <div className="relative isolate p-8 max-md:p-4">
       <Backdrop cover={pending?.cover} />
-      <div className="flex gap-9">
-        <Poster src={pending?.cover} title={pending?.title ?? ''} className="aspect-[2/3] w-[220px] shrink-0 rounded-2xl shadow-2xl ring-1 ring-seam" />
+      <div className="flex gap-9 max-md:flex-col max-md:gap-5">
+        <Poster src={pending?.cover} title={pending?.title ?? ''} className="aspect-[2/3] w-[220px] shrink-0 rounded-2xl shadow-2xl ring-1 ring-seam max-md:w-[132px]" />
         <div className="flex-1 pt-3">
           <Eyebrow>{[pending?.type, pending?.year].filter(Boolean).join(' · ')}</Eyebrow>
-          <h1 className="mt-3 font-display text-[60px] font-extrabold uppercase leading-[0.9]">{pending?.title}</h1>
+          <h1 className="mt-3 font-display text-[60px] font-extrabold uppercase leading-[0.9] max-md:text-[30px]">{pending?.title}</h1>
           <div className="mt-6 flex items-center gap-2 font-mono text-[12px] text-usher">
-            <Spinner /> {tuiStatus ?? activity ?? 'Opening…'}
+            <Spinner /> {tm(tuiStatus ?? activity) || t('Opening…')}
           </div>
           <div className="mt-6 space-y-2.5">
             <div className="skeleton h-3.5 w-11/12 rounded" />
@@ -49,26 +51,26 @@ function Loading() {
 
 function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
   const play = useStore((s) => s.play);
+  const playOnComputer = useStore((s) => s.playOnComputer);
   const download = useStore((s) => s.download);
   const { state, streams } = view;
 
   if (state.streamsStatus === 'loading') return <StreamsLoading source={view.info?.provider} />;
   if (state.streamsStatus === 'choose-audio') {
-    return <div className="rounded-2xl border border-dashed border-seam p-6 text-[13.5px] text-usher">Choose an audio track above to see its streams.</div>;
+    return <div className="rounded-2xl border border-dashed border-seam p-6 text-[13.5px] text-usher">{t('Choose an audio track above to see its streams.')}</div>;
   }
   if (!streams.length) {
     const noStreamAddons = /stream add-?ons?/i.test(state.streamsMessage ?? '');
     return (
       <div className="rounded-2xl border border-dashed border-seam p-6 text-[13.5px] leading-relaxed text-usher">
         {noStreamAddons ? (
-          <>
-            The Addons source only lists titles; it has no add-on installed that provides streams. Switch to MovieBox, 4KHDHub or Dramachi in the
-            top-right corner and open the title there to play it.
-          </>
+          t(
+            'The Addons source only lists titles until you add an add-on that provides streams (Settings → Add-ons). Or switch to MovieBox, 4KHDHub or Dramachi in the top-right corner and open the title there.',
+          )
         ) : (
           <>
-            {state.streamsMessage ?? 'Pick an episode to see its streams.'}{' '}
-            {state.streamsStatus === 'empty' && 'Try another episode, another audio track, or another source.'}
+            {tm(state.streamsMessage) || t('Pick an episode to see its streams.')}{' '}
+            {state.streamsStatus === 'empty' && t('Try another episode, another audio track, or another source.')}
           </>
         )}
       </div>
@@ -84,16 +86,33 @@ function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
   };
   const th = 'px-4 py-2.5 font-normal';
   return (
-    <div className="overflow-hidden rounded-2xl border border-seam">
+    <>
+    {/* Phones: one card per stream. */}
+    <ul className="space-y-2 md:hidden">
+      {streams.map((s: StreamOption) => (
+        <li key={s.index} className="flex items-center gap-3 rounded-2xl border border-seam bg-house/40 p-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="font-display text-[22px] font-bold leading-none">{qualityLabel(s.resolution)}</span>
+              <span className="truncate font-mono text-[11px] text-usher">{[s.size ?? formatBytes(s.sizeBytes), s.tags ?? s.codec, s.audio && tm(s.audio)].filter(Boolean).join(' · ')}</span>
+            </div>
+            {(s.source || s.release) && <div className="mt-1 line-clamp-2 font-mono text-[10.5px] text-dim [overflow-wrap:anywhere]">{[s.source, s.release].filter(Boolean).join(' · ')}</div>}
+          </div>
+          <Button size="sm" variant={s.index === 0 ? 'primary' : 'ghost'} icon={<Play size={13} fill="currentColor" />} disabled={busy} onClick={() => void play(s.index)} aria-label={t('Play {quality}', { quality: s.resolution })} />
+          {isWeb && <Button size="sm" variant="quiet" icon={<Monitor size={14} />} disabled={busy} onClick={() => void playOnComputer(s.index)} aria-label={t('Play on the computer')} />}
+        </li>
+      ))}
+    </ul>
+    <div className="overflow-hidden rounded-2xl border border-seam max-md:hidden">
       <table className="w-full text-left">
         <thead className="bg-velvet/80 font-mono text-[10px] uppercase tracking-[0.16em] text-dim">
           <tr>
-            <th className={th}>Quality</th>
-            {has.size && <th className={th}>Size</th>}
-            {has.format && <th className={th}>Format</th>}
-            {has.audio && <th className={th}>Audio</th>}
-            {has.source && <th className={th}>Source</th>}
-            {has.release && <th className={th}>Release</th>}
+            <th className={th}>{t('Quality')}</th>
+            {has.size && <th className={th}>{t('Size')}</th>}
+            {has.format && <th className={th}>{t('Format')}</th>}
+            {has.audio && <th className={th}>{t('Audio')}</th>}
+            {has.source && <th className={th}>{t('Source')}</th>}
+            {has.release && <th className={th}>{t('Release')}</th>}
             <th className="px-4 py-2.5" />
           </tr>
         </thead>
@@ -106,7 +125,7 @@ function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
               </td>
               {has.size && <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-usher">{s.size ?? formatBytes(s.sizeBytes)}</td>}
               {has.format && <td className="px-4 py-3 font-mono text-[11px] uppercase text-usher">{s.tags ?? s.codec ?? ''}</td>}
-              {has.audio && <td className="px-4 py-3 text-[12.5px] text-usher">{s.audio ?? ''}</td>}
+              {has.audio && <td className="px-4 py-3 text-[12.5px] text-usher">{tm(s.audio)}</td>}
               {has.source && <td className="px-4 py-3 text-[13px] text-usher">{s.source ?? ''}</td>}
               {has.release && (
                 <td className="max-w-[360px] px-4 py-3 font-mono text-[11px] text-usher" title={s.release} data-selectable>
@@ -116,10 +135,10 @@ function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
               <td className="px-4 py-2.5">
                 <div className="flex justify-end gap-1.5">
                   <Button size="sm" variant={s.index === 0 ? 'primary' : 'ghost'} icon={<Play size={13} fill="currentColor" />} disabled={busy} onClick={() => void play(s.index)}>
-                    Play
+                    {t('Play')}
                   </Button>
-                  <Button size="sm" variant="quiet" icon={<Download size={14} />} disabled={busy} onClick={() => void download('stream', s.index)} aria-label={`Download ${s.resolution}`}>
-                    Download
+                  <Button size="sm" variant="quiet" icon={<Download size={14} />} disabled={busy} onClick={() => void download('stream', s.index)} aria-label={t('Download {quality}', { quality: s.resolution })}>
+                    {t('Download')}
                   </Button>
                 </div>
               </td>
@@ -128,6 +147,7 @@ function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -144,11 +164,11 @@ function StreamsLoading({ source }: { source?: string }) {
   return (
     <div className="flex h-28 flex-col items-center justify-center gap-1.5 rounded-2xl border border-seam bg-velvet/60">
       <span className="flex items-center gap-2 font-mono text-[12px] text-usher">
-        <Spinner /> Loading streams… {seconds >= 3 && `${seconds}s`}
+        <Spinner /> {t('Loading streams…')} {seconds >= 3 && t('{s}s', { s: seconds })}
       </span>
       {seconds >= 6 && (
         <span className="text-[12px] text-dim">
-          {source && source !== 'moviebox' ? 'This source looks up every release and can take up to a minute.' : 'Still waiting for the source to answer.'}
+          {source && source !== 'moviebox' ? t('This source looks up every release and can take up to a minute.') : t('Still waiting for the source to answer.')}
         </span>
       )}
     </div>
@@ -161,25 +181,30 @@ function NotOnSource() {
   const providers = useStore((s) => s.providers);
   const retry = useStore((s) => s.retryTitleOn);
   const back = useStore((s) => s.back);
-  // Addons can't play anything without a stream add-on, so it isn't offered.
-  const others = providers.filter((p) => p !== miss.source && p.toLowerCase() !== 'addons');
+  const streamAddons = useStore((s) => s.env?.streamAddons.length ?? 0);
+  // Addons can't play anything without an add-on that provides streams, so then it isn't offered.
+  const others = providers.filter((p) => p !== miss.source && (p.toLowerCase() !== 'addons' || streamAddons > 0));
   return (
-    <div className="p-8">
-      <div className="max-w-2xl rounded-2xl border border-seam bg-velvet/60 p-7">
-        <Eyebrow>Not on {miss.source ?? 'this source'}</Eyebrow>
-        <h1 className="mt-2 font-display text-[40px] font-extrabold uppercase leading-[0.95]">{miss.ref.title}</h1>
+    <div className="p-8 max-md:p-4">
+      <div className="max-w-2xl rounded-2xl border border-seam bg-velvet/60 p-7 max-md:p-5">
+        <Eyebrow>{miss.source ? t('Not on {source}', { source: miss.source }) : t('Not on this source')}</Eyebrow>
+        <h1 className="mt-2 font-display text-[40px] font-extrabold uppercase leading-[0.95] max-md:text-[28px]">{miss.ref.title}</h1>
         <p className="mt-3 text-[14px] leading-relaxed text-usher">
-          {miss.source ?? 'The active source'} has no title called “{miss.ref.title}”{miss.ref.year ? ` from ${miss.ref.year}` : ''}.
-          {others.length ? ' Look for it on another source:' : ''}
+          {!miss.source
+            ? t('The active source has no title called {title}.', { title: q(miss.ref.title) })
+            : miss.ref.year
+              ? t('{source} has no title called {title} from {year}.', { source: miss.source, title: q(miss.ref.title), year: miss.ref.year })
+              : t('{source} has no title called {title}.', { source: miss.source, title: q(miss.ref.title) })}
+          {others.length ? ` ${t('Look for it on another source:')}` : ''}
         </p>
         <div className="mt-5 flex flex-wrap gap-2">
           {others.map((p, i) => (
             <Button key={p} variant={i === 0 ? 'primary' : 'ghost'} focusOnMount={i === 0} onClick={() => void retry(p)}>
-              Look on {p}
+              {t('Look on {source}', { source: p })}
             </Button>
           ))}
           <Button variant="quiet" onClick={back}>
-            Back
+            {t('Back')}
           </Button>
         </div>
       </div>
@@ -202,7 +227,7 @@ function Episodes({ view, busy }: { view: DetailsView; busy: boolean }) {
   return (
     <section>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Eyebrow className="mr-2">Seasons</Eyebrow>
+        <Eyebrow className="mr-2">{t('Seasons')}</Eyebrow>
         {seasons.map((s) => (
           <Chip
             key={s.season}
@@ -213,14 +238,14 @@ function Episodes({ view, busy }: { view: DetailsView; busy: boolean }) {
               if (s.season !== view.current?.season) void selectSeason(s.season);
             }}
           >
-            Season {s.season}
+            {t('Season {n}', { n: s.season })}
           </Chip>
         ))}
         <Button size="sm" variant="quiet" className="ml-auto" icon={<Download size={14} />} disabled={busy} onClick={() => void download('season', season)}>
-          Download season {season}
+          {t('Download season {n}', { n: season })}
         </Button>
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(118px,1fr))] gap-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(118px,1fr))] gap-2 max-md:grid-cols-[repeat(auto-fill,minmax(84px,1fr))]">
         {episodes.map((e) => {
           const active = view.current?.season === e.season && view.current?.episode === e.episode;
           return (
@@ -234,7 +259,7 @@ function Episodes({ view, busy }: { view: DetailsView; busy: boolean }) {
                 active ? 'border-bulb/70 bg-bulb/10' : 'border-seam bg-velvet/70 hover:bg-curtain'
               }`}
             >
-              <span className={`font-mono text-[10px] uppercase tracking-[0.16em] ${active ? 'text-bulb' : 'text-dim'}`}>Episode</span>
+              <span className={`font-mono text-[10px] uppercase tracking-[0.16em] ${active ? 'text-bulb' : 'text-dim'}`}>{t('Episode')}</span>
               <span className="font-display text-[24px] font-bold leading-none">{String(e.episode).padStart(2, '0')}</span>
               {e.title && <span className="truncate text-[11.5px] text-usher">{e.title}</span>}
             </button>
@@ -255,7 +280,7 @@ export function Details() {
   const route = useRoute();
   const notFound = useStore((s) => s.detailsNotFound);
   const subtitles = useStore((s) => s.subtitles);
-  const { play, download, toggleFavorite, selectAudio, setConsole, back } = useStore.getState();
+  const { play, playOnComputer, download, toggleFavorite, selectAudio, setConsole, back } = useStore.getState();
   const [more, setMore] = useState(false);
   const [imdb, setImdb] = useState<ImdbRating | null>(null);
   const busy = Boolean(busyLabel);
@@ -297,8 +322,8 @@ export function Details() {
   if (notFound) return <NotOnSource />;
   if (error || !view) {
     return (
-      <div className="p-8">
-        <ErrorPanel title="Couldn't open this title" message={error ?? 'Nothing is open.'} onRetry={back} onConsole={() => setConsole(true)} />
+      <div className="p-8 max-md:p-4">
+        <ErrorPanel title={t("Couldn't open this title")} message={error ?? t('Nothing is open.')} onRetry={back} onConsole={() => setConsole(true)} />
       </div>
     );
   }
@@ -307,28 +332,28 @@ export function Details() {
   // 4KHDHub and Dramachi have no art: IMDb's poster stands in once the title is matched there.
   const cover = info?.cover ?? imdbPoster(imdb?.id);
   const meta = [
-    info?.kind === 'series' ? 'Series' : info?.kind === 'movie' ? 'Movie' : undefined,
+    info?.kind === 'series' ? t('Series') : info?.kind === 'movie' ? t('Movie') : undefined,
     info?.year,
-    info?.duration,
-    imdb ? `IMDb ${imdb.rating.toFixed(1)} · ${compactVotes(imdb.votes)} votes` : info?.rating && `★ ${info.rating}`,
+    info?.duration && tm(info.duration),
+    imdb ? t('IMDb {rating} · {votes} votes', { rating: imdb.rating.toFixed(1), votes: compactVotes(imdb.votes) }) : info?.rating && `★ ${info.rating}`,
     info?.provider && sourceName(info.provider),
   ].filter(Boolean);
   const facts: Array<[string, string | undefined]> = [
-    ['Director', info?.director],
-    ['Cast', info?.cast],
-    ['Audio', info?.languages],
-    ['Formats', info?.formats],
+    [t('Director'), info?.director],
+    [t('Cast'), info?.cast],
+    [t('Audio'), info?.languages],
+    [t('Formats'), info?.formats],
   ];
   const audioLabels = view.state.audioLabels;
 
   return (
-    <div className="relative isolate p-8">
+    <div className="relative isolate p-8 max-md:p-4">
       <Backdrop cover={cover} />
-      <div className="flex gap-9">
-        <Poster src={cover} title={view.state.title} className="aspect-[2/3] w-[220px] shrink-0 self-start rounded-2xl shadow-2xl ring-1 ring-seam" />
+      <div className="flex gap-9 max-md:flex-col max-md:gap-5">
+        <Poster src={cover} title={view.state.title} className="aspect-[2/3] w-[220px] shrink-0 self-start rounded-2xl shadow-2xl ring-1 ring-seam max-md:w-[132px]" />
         <div className="min-w-0 flex-1 pt-3">
           <Eyebrow>{meta.join('  ·  ')}</Eyebrow>
-          <h1 className="mt-3 font-display text-[60px] font-extrabold uppercase leading-[0.9] tracking-[0.01em]" data-selectable>
+          <h1 className="mt-3 font-display text-[60px] font-extrabold uppercase leading-[0.9] tracking-[0.01em] max-md:text-[30px]" data-selectable>
             {view.state.title}
           </h1>
           {info?.description && (
@@ -338,7 +363,7 @@ export function Details() {
           )}
           {info?.description && info.description.length > 260 && (
             <button className="mt-1 text-[12.5px] text-usher hover:text-screen" onClick={() => setMore(!more)}>
-              {more ? 'Less' : 'More'}
+              {more ? t('Less') : t('More')}
             </button>
           )}
           {info?.tagline && <p className="mt-3 max-w-3xl text-[14px] italic text-screen/70">“{info.tagline.replace(/^["“]|["”]$/g, '')}”</p>}
@@ -360,33 +385,38 @@ export function Details() {
 
           <div className="mt-7 flex flex-wrap items-center gap-2.5">
             <Button variant="primary" size="lg" focusOnMount icon={<Play size={17} fill="currentColor" />} disabled={busy || !view.streams.length} onClick={() => void play(0)}>
-              Play{view.streams[0] ? ` ${view.streams[0].resolution}` : ''}
+              {view.streams[0] ? t('Play {quality}', { quality: view.streams[0].resolution }) : t('Play')}
             </Button>
-            <Button size="lg" icon={<Download size={17} />} disabled={busy || !view.streams.length} onClick={() => void download('stream', 0)}>
-              Download
+            {isWeb && (
+              <Button size="lg" variant="ghost" icon={<Monitor size={17} />} disabled={busy || !view.streams.length} onClick={() => void playOnComputer(0)}>
+                {t('On the computer')}
+              </Button>
+            )}
+            <Button size="lg" icon={<Download size={17} />} disabled={busy || !view.streams.length} onClick={() => void download('stream', 0)} title={isWeb ? t('Downloads to the computer') : undefined}>
+              {t('Download')}
             </Button>
             <Button size="lg" variant="quiet" icon={<Star size={17} fill={view.state.favorite ? 'currentColor' : 'none'} className={view.state.favorite ? 'text-bulb' : ''} />} disabled={busy} onClick={() => void toggleFavorite()}>
-              {view.state.favorite ? 'In favorites' : 'Add to favorites'}
+              {view.state.favorite ? t('In favorites') : t('Add to favorites')}
             </Button>
             {busy && (
               <span className="ml-2 flex items-center gap-2 font-mono text-[12px] text-usher">
-                <Spinner /> {tuiStatus ?? busyLabel}
+                <Spinner /> {tm(tuiStatus) || busyLabel}
               </span>
             )}
           </div>
           {!ytDlp && info?.provider === 'moviebox' && (
-            <div className="mt-3 font-mono text-[11px] text-dim">Downloads from MovieBox need yt-dlp installed.</div>
+            <div className="mt-3 font-mono text-[11px] text-dim">{t('Downloads from MovieBox need yt-dlp installed.')}</div>
           )}
         </div>
       </div>
 
-      <div className="mt-12 space-y-9">
+      <div className="mt-12 space-y-9 max-md:mt-8 max-md:space-y-7">
         {audioLabels.length > 1 && (
           <section className="flex flex-wrap items-center gap-2">
-            <Eyebrow className="mr-2">Audio</Eyebrow>
+            <Eyebrow className="mr-2">{t('Audio')}</Eyebrow>
             {audioLabels.map((label, i) => (
               <Chip key={label} active={view.state.selectedAudio === i} disabled={busy} onClick={() => void selectAudio(i)}>
-                {label}
+                {tm(label)}
               </Chip>
             ))}
           </section>
@@ -396,7 +426,7 @@ export function Details() {
 
         <section>
           <div className="mb-3 flex items-baseline gap-3">
-            <Eyebrow>Streams</Eyebrow>
+            <Eyebrow>{t('Streams')}</Eyebrow>
             {view.current && info?.kind === 'series' && (
               <span className="font-mono text-[11px] text-usher">
                 S{String(view.current.season).padStart(2, '0')} · E{String(view.current.episode).padStart(2, '0')}
@@ -411,16 +441,17 @@ export function Details() {
           <div className="text-[13px] leading-relaxed text-usher">
             {view.captions.length > 0 && (
               <>
-                <span className="text-screen">Subtitles for this {info?.kind === 'series' ? 'episode' : 'title'}:</span> {view.captions.map((c) => c.language).join(', ')}.{' '}
+                <span className="text-screen">{info?.kind === 'series' ? t('Subtitles for this episode:') : t('Subtitles for this title:')}</span>{' '}
+                {view.captions.map((c) => tm(c.language)).join(', ')}.{' '}
               </>
             )}
             {subtitles === 'ask'
-              ? 'You choose the subtitles each time you play or download.'
+              ? t('You choose the subtitles each time you play or download.')
               : subtitles === 'off'
-                ? 'Plays without subtitles.'
-                : `${subtitles} subtitles load automatically when there are some; otherwise you choose.`}{' '}
+                ? t('Plays without subtitles.')
+                : t('{language} subtitles load automatically when there are some; otherwise you choose.', { language: t(subtitles) })}{' '}
             <button className="text-screen/80 underline decoration-seam underline-offset-2 hover:text-screen" onClick={() => useStore.getState().go({ name: 'settings' })}>
-              Change
+              {t('Change')}
             </button>
           </div>
         </section>

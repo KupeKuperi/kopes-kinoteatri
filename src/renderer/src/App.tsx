@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { errorMessage, mb } from '@/lib/api';
+import { t, tm, useLang } from '@/lib/i18n';
 import { isTyping, moveFocus, type Direction } from '@/lib/nav';
-import { isMac } from '@/lib/platform';
+import { isMac, isWeb } from '@/lib/platform';
 import { useRoute, useStore } from '@/lib/store';
 import { EngineConsole } from '@/components/EngineConsole';
 import { Shortcuts } from '@/components/Shortcuts';
 import { SubtitleChooser } from '@/components/SubtitleChooser';
-import { SECTION_KEYS, Sidebar } from '@/components/Sidebar';
+import { PhonePlayer } from '@/components/PhonePlayer';
+import { BottomNav, SECTION_KEYS, Sidebar } from '@/components/Sidebar';
 import { SEARCH_INPUT_ID, TitleBar } from '@/components/TitleBar';
 import { Toasts } from '@/components/Toasts';
 import { Button, Spinner } from '@/components/ui';
@@ -27,6 +29,17 @@ function EngineMissing() {
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (status?.state !== 'missing') return null;
+  // A phone can't install anything on the computer: it says what to do there.
+  if (isWeb) {
+    return (
+      <div className="absolute inset-0 z-50 flex items-center justify-center bg-house/90 p-4 backdrop-blur">
+        <div className="max-w-lg rounded-3xl border border-seam bg-velvet p-7">
+          <h1 className="font-display text-[34px] font-extrabold uppercase leading-[0.92]">{t('Install the engine')}</h1>
+          <p className="mt-3 text-[14px] leading-relaxed text-usher">{t("The engine isn't set up on the computer yet. Open Kope's Kinoteatri there and install it.")}</p>
+        </div>
+      </div>
+    );
+  }
   const install = async () => {
     setInstalling(true);
     setError(null);
@@ -42,21 +55,22 @@ function EngineMissing() {
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-house/90 backdrop-blur">
       <div className="max-w-lg rounded-3xl border border-seam bg-velvet p-9">
-        <div className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-bulb">One more step</div>
-        <h1 className="mt-3 font-display text-[44px] font-extrabold uppercase leading-[0.92]">Install the engine</h1>
+        <div className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-bulb">{t('One more step')}</div>
+        <h1 className="mt-3 font-display text-[44px] font-extrabold uppercase leading-[0.92]">{t('Install the engine')}</h1>
         <p className="mt-4 text-[14px] leading-relaxed text-usher">
-          Kope's Kinoteatri finds and plays titles through moviebox-tui, a free open-source program that isn't on this computer yet. Install
-          its official release from GitHub (a few MB, checked against its published checksum), or point to the program if you already have it.
+          {t(
+            "Kope's Kinoteatri finds and plays titles through moviebox-tui, a free open-source program that isn't on this computer yet. Install its official release from GitHub (a few MB, checked against its published checksum), or point to the program if you already have it.",
+          )}
         </p>
         {error && <p className="mt-4 rounded-lg border border-err/30 bg-err/10 px-3 py-2 text-[13px] text-screen/90">{error}</p>}
         {installing && (
           <p className="mt-4 flex items-center gap-2 font-mono text-[12px] text-usher">
-            <Spinner /> {step ?? 'Installing…'}
+            <Spinner /> {tm(step) || t('Installing…')}
           </p>
         )}
         <div className="mt-6 flex flex-wrap gap-2.5">
           <Button variant="primary" busy={installing} onClick={() => void install()}>
-            Install moviebox-tui
+            {t('Install moviebox-tui')}
           </Button>
           <Button
             disabled={installing}
@@ -68,10 +82,10 @@ function EngineMissing() {
               }
             }}
           >
-            I have it: locate it
+            {t('I have it: locate it')}
           </Button>
           <Button variant="quiet" disabled={installing} onClick={() => void mb.restartEngine().then(refreshStatus)}>
-            Look again
+            {t('Look again')}
           </Button>
         </div>
       </div>
@@ -84,6 +98,8 @@ export function App() {
   const init = useStore((s) => s.init);
   const mainRef = useRef<HTMLElement>(null);
   const asking = useStore((s) => s.subtitleChoice !== null);
+  // Every screen reads its text through t(): a new language repaints the whole window.
+  useLang((s) => s.lang);
 
   useEffect(() => init(), [init]);
 
@@ -156,18 +172,20 @@ export function App() {
       <TitleBar />
       <div className="relative flex min-h-0 flex-1">
         <Sidebar />
-        <main ref={mainRef} className="relative min-w-0 flex-1 overflow-y-auto">
+        <main ref={mainRef} className="relative min-w-0 flex-1 overflow-y-auto max-md:pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
           <div key={route.name + (route.tab ?? '')} className="mx-auto max-w-[1500px] animate-rise">
             {screen}
           </div>
         </main>
-        <EngineConsole />
+        {!isWeb && <EngineConsole />}
         <EngineMissing />
       </div>
       </div>
+      <BottomNav />
       <Toasts />
       <Shortcuts />
       <SubtitleChooser />
+      <PhonePlayer />
     </div>
   );
 }

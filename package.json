@@ -1,6 +1,6 @@
 {
   "name": "kopes-kinoteatri",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Kope's Kinoteatri: a desktop app for moviebox-tui (movies, series, anime, live TV)",
   "author": "KupeKuperi",
   "homepage": "https://github.com/KupeKuperi/kopes-kinoteatri",
@@ -34,6 +34,7 @@
   "devDependencies": {
     "@electron/packager": "^20.3.0",
     "@fontsource-variable/hanken-grotesk": "^5.3.0",
+    "@fontsource-variable/noto-sans-georgian": "^5.3.0",
     "@fontsource/big-shoulders-display": "^5.3.0",
     "@fontsource/martian-mono": "^5.3.0",
     "@tailwindcss/vite": "^4.1.0",
@@ -45,7 +46,9 @@
     "electron": "^44.0.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "hls.js": "^1.7.3",
     "lucide-react": "^0.540.0",
+    "qrcode-generator": "^1.5.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwindcss": "^4.1.0",

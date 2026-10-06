@@ -17,7 +17,7 @@ export function readTuiConfigRaw(): Raw | null {
   }
 }
 
-function writeJsonAtomic(file: string, value: unknown) {
+export function writeJsonAtomic(file: string, value: unknown): void {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
   fs.renameSync(tmp, file);

@@ -10,6 +10,7 @@ import { EngineManager } from './engine/manager';
 import { handleImageScheme, registerImageScheme } from './images';
 import { forwardEvents, registerIpc } from './ipc';
 import { cacheDir, tuiDataDir } from './paths';
+import { setupPhone, type Phone } from './phone';
 
 const APP_NAME = "Kope's Kinoteatri";
 
@@ -47,8 +48,14 @@ const engine = new EngineManager(new CacheIndex(cacheDir()), () => readGuiSettin
 // Chromium's network stack (net.fetch) honours the system proxy settings.
 const imdb = new ImdbService(path.join(userData, 'imdb'), (url) => net.fetch(url));
 
-const send = (event: EngineEvent) => {
+const toWindow = (event: EngineEvent) => {
   if (win && !win.isDestroyed()) win.webContents.send('mb:event', event);
+};
+let phone: Phone | null = null;
+/** Engine events go to the window and to every phone that has the app open. */
+const send = (event: EngineEvent) => {
+  toWindow(event);
+  phone?.broadcast(event);
 };
 
 function createWindow() {
@@ -111,12 +118,18 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
   }
   handleImageScheme();
-  registerIpc(engine, imdb, userData, () => win, (url) => net.fetch(url));
+  const ipc = registerIpc(engine, imdb, userData, () => win, (url, init) => net.fetch(url, init), { beforePlay: () => phone?.beforePlay() ?? Promise.resolve() });
+  phone = setupPhone({ engine, userData, handlers: ipc.handlers, handle: ipc.handle, rendererDir: path.join(__dirname, '../renderer'), send: toWindow });
   forwardEvents(engine, send);
   watchLibrary(tuiDataDir(), () => send({ type: 'library', payload: readLibrary() }));
   createWindow();
-  // First end an engine a crashed earlier run may have left behind, then start this one.
-  void engine.reapOrphan().finally(() => engine.start());
+  // First end an engine a crashed earlier run may have left behind, then start this one (after
+  // phone access, which sets the engine's players).
+  void engine
+    .reapOrphan()
+    .then(() => phone?.start())
+    .catch(() => undefined)
+    .finally(() => engine.start());
 });
 
 let quitting = false;
@@ -124,6 +137,7 @@ app.on('before-quit', (e) => {
   if (quitting) return;
   e.preventDefault();
   quitting = true;
+  phone?.stop();
   void engine.shutdown().finally(() => app.quit());
 });
 

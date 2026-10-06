@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { t } from '@/lib/i18n';
 import { isTyping } from '@/lib/nav';
 
 /**
@@ -80,7 +81,7 @@ export function Eyebrow({ children, className = '' }: { children: ReactNode; cla
 export function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
-      <h2 className="font-display text-[26px] font-extrabold uppercase leading-none tracking-wide">{children}</h2>
+      <h2 className="font-display text-[26px] font-extrabold uppercase leading-none tracking-wide max-md:text-[21px]">{children}</h2>
       {aside}
     </div>
   );
@@ -99,6 +100,22 @@ export function Chip({ active, children, ...rest }: ButtonHTMLAttributes<HTMLBut
   );
 }
 
+export function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label?: string }) {
+  return (
+    <button
+      data-nav=""
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${checked ? 'bg-bulb' : 'bg-seam'}`}
+    >
+      <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full transition-transform ${checked ? 'translate-x-5 bg-house' : 'translate-x-0 bg-screen'}`} />
+    </button>
+  );
+}
+
 export function Toggle({ checked, onChange, label, hint }: { checked: boolean; onChange: (v: boolean) => void; label: string; hint?: string }) {
   return (
     <label className="flex items-center justify-between gap-6 py-3">
@@ -106,22 +123,14 @@ export function Toggle({ checked, onChange, label, hint }: { checked: boolean; o
         <span className="block text-[14px]">{label}</span>
         {hint && <span className="mt-0.5 block text-[12.5px] text-usher">{hint}</span>}
       </span>
-      <button
-        data-nav=""
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${checked ? 'bg-bulb' : 'bg-seam'}`}
-      >
-        <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full transition-transform ${checked ? 'translate-x-5 bg-house' : 'translate-x-0 bg-screen'}`} />
-      </button>
+      <Switch checked={checked} onChange={onChange} />
     </label>
   );
 }
 
 export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-seam px-8 py-14 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-seam px-8 py-14 text-center max-md:px-5 max-md:py-10">
       <div className="font-display text-2xl font-bold uppercase tracking-wide">{title}</div>
       {children && <div className="mt-2 max-w-md text-[13.5px] leading-relaxed text-usher">{children}</div>}
       {action && <div className="mt-5">{action}</div>}
@@ -137,10 +146,10 @@ export function ErrorPanel({ title, message, onRetry, onConsole }: { title: stri
         {message}
       </p>
       <div className="mt-4 flex gap-2">
-        {onRetry && <Button onClick={onRetry}>Try again</Button>}
+        {onRetry && <Button onClick={onRetry}>{t('Try again')}</Button>}
         {onConsole && (
           <Button variant="quiet" onClick={onConsole}>
-            Show engine console
+            {t('Show engine console')}
           </Button>
         )}
       </div>

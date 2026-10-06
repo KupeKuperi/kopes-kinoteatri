@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ImdbRating, Suggestion } from '@shared/types';
 import { imdbPoster, mb } from '@/lib/api';
+import { q, t, tm, tn } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
 import { PosterCard, PosterSkeleton, gridClass } from '@/components/Poster';
 import { Chip, Empty, ErrorPanel, Eyebrow, Spinner } from '@/components/ui';
@@ -68,23 +69,23 @@ export function Results() {
   const summary = !results
     ? null
     : isImdb
-      ? `${results.total} titles · ${results.message ?? 'ranked by IMDb rating'} · opens on ${source ?? 'the active source'}`
+      ? t('{n} titles · {how} · opens on {source}', { n: results.total, how: tm(results.message) || t('ranked by IMDb rating'), source: source ?? 'MovieBox' })
       : isBrowse
-        ? `${results.total} titles · from ${results.provider ?? 'the source'}'s current homepage feed`
-        : `${results.total} ${results.total === 1 ? 'title' : 'titles'}`;
+        ? t("{n} titles · from {source}'s current homepage feed", { n: results.total, source: results.provider ?? 'MovieBox' })
+        : t(results.total === 1 ? '{n} title' : '{n} titles', { n: results.total });
 
   return (
-    <div className="p-8">
-      <header className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="p-8 max-md:p-4">
+      <header className="mb-7 flex flex-wrap items-end justify-between gap-4 max-md:mb-5">
         <div>
-          <Eyebrow>{isImdb ? 'IMDb' : isBrowse ? 'Browse' : 'Search'}{results?.provider && !isImdb ? ` · ${results.provider}` : ''}</Eyebrow>
-          <h1 className="mt-2 font-display text-[44px] font-extrabold uppercase leading-none tracking-wide">
-            {isBrowse || isImdb ? label : <>“{label}”</>}
+          <Eyebrow>{isImdb ? 'IMDb' : isBrowse ? t('Discover') : t('Search')}{results?.provider && !isImdb ? ` · ${results.provider}` : ''}</Eyebrow>
+          <h1 className="mt-2 font-display text-[44px] font-extrabold uppercase leading-none tracking-wide max-md:text-[28px]">
+            {isBrowse || isImdb ? tm(label) : q(label)}
           </h1>
           <div className="mt-2 flex h-5 items-center gap-2 font-mono text-[11.5px] text-usher">
             {loading ? (
               <>
-                <Spinner /> {isImdb ? 'Reading IMDb ratings…' : tuiStatus ?? 'Asking the engine…'}
+                <Spinner /> {isImdb ? t('Reading IMDb ratings…') : tm(tuiStatus) || t('Asking the engine…')}
               </>
             ) : (
               summary
@@ -93,23 +94,25 @@ export function Results() {
         </div>
         {results && results.items.length > 0 && !isImdb && (
           <div className="flex gap-2">
-            <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
-            <Chip active={filter === 'movie'} onClick={() => setFilter('movie')}>Movies</Chip>
-            <Chip active={filter === 'series'} onClick={() => setFilter('series')}>Series</Chip>
+            <Chip active={filter === 'all'} onClick={() => setFilter('all')}>{t('All')}</Chip>
+            <Chip active={filter === 'movie'} onClick={() => setFilter('movie')}>{t('Movies')}</Chip>
+            <Chip active={filter === 'series'} onClick={() => setFilter('series')}>{t('Series')}</Chip>
           </div>
         )}
       </header>
 
       {results?.requested && !loading && (
         <div className="mb-6 rounded-xl border border-bulb/30 bg-bulb/[0.06] px-4 py-3 text-[13.5px] text-screen/90">
-          No exact match for <span className="font-semibold">“{results.requested}”</span>. Showing results for{' '}
-          <span className="font-semibold">“{results.label}”</span>.
+          {tn('No exact match for {requested}. Showing results for {shown}.', {
+            requested: <span className="font-semibold">{q(results.requested)}</span>,
+            shown: <span className="font-semibold">{q(results.label)}</span>,
+          })}
         </div>
       )}
 
       {error && (
         <ErrorPanel
-          title={isImdb || isBrowse ? "Couldn't load this list" : "Search didn't finish"}
+          title={isImdb || isBrowse ? t("Couldn't load this list") : t("Search didn't finish")}
           message={error}
           onRetry={() => void (request ? request.retry() : search(label))}
           onConsole={() => setConsole(true)}
@@ -124,20 +127,21 @@ export function Results() {
 
       {empty && (
         <>
-          <Empty title="Nothing found">
-            {results.message ?? `No titles match “${label}”.`} Try fewer words, check the spelling, or switch the source in the top-right corner.
+          <Empty title={t('Nothing found')}>
+            {tm(results.message) || t('No titles match {query}.', { query: q(label) })}{' '}
+            {t('Try fewer words, check the spelling, or switch the source in the top-right corner.')}
           </Empty>
           {similar.length > 0 && (
             <section className="mt-10">
-              <Eyebrow className="mb-4">Titles with a similar name</Eyebrow>
+              <Eyebrow className="mb-4">{t('Titles with a similar name')}</Eyebrow>
               <div className={gridClass}>
-                {similar.map((t) => (
+                {similar.map((s) => (
                   <PosterCard
-                    key={`${t.title}-${t.year}`}
-                    title={t.title}
-                    cover={t.cover}
-                    lines={[t.year, t.kind]}
-                    onClick={() => void openTitle({ title: t.title, year: t.year, subjectId: t.subjectId, cover: t.cover })}
+                    key={`${s.title}-${s.year}`}
+                    title={s.title}
+                    cover={s.cover}
+                    lines={[s.year, s.kind && tm(s.kind)]}
+                    onClick={() => void openTitle({ title: s.title, year: s.year, subjectId: s.subjectId, cover: s.cover })}
                   />
                 ))}
               </div>
@@ -147,8 +151,8 @@ export function Results() {
       )}
 
       {!loading && results && results.items.length > 0 && items.length === 0 && (
-        <Empty title={filter === 'movie' ? 'No movies here' : 'No series here'}>
-          These results have no {filter === 'movie' ? 'movies' : 'series'}. Choose All to see everything.
+        <Empty title={filter === 'movie' ? t('No movies here') : t('No series here')}>
+          {filter === 'movie' ? t('These results have no movies. Choose All to see everything.') : t('These results have no series. Choose All to see everything.')}
         </Empty>
       )}
 
@@ -163,7 +167,7 @@ export function Results() {
                 imdb={item.imdb?.rating}
                 badge={item.rating}
                 flags={item.badges}
-                lines={[item.year, item.type]}
+                lines={[item.year, item.type && tm(item.type)]}
                 onClick={() =>
                   void (isImdb ? openTitle({ title: item.title, year: item.year, cover: item.cover, imdb: item.imdb }) : openResult(item))
                 }

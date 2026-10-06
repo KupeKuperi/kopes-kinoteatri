@@ -6,7 +6,10 @@ A desktop app for watching movies, series, anime and Asian dramas. Kope's Kinote
 - audio track, season, episode and quality choice;
 - automatic subtitles;
 - play in VLC or mpv, or download;
-- continue watching, history, favorites and Live TV.
+- continue watching, history, favorites and Live TV;
+- **ქართული** or English (the **ქარ / ENG** switch in the top bar);
+- more sources through Stremio add-ons;
+- **watch on your phone**: an iPhone or Android phone on the same Wi-Fi opens the app in its browser.
 
 It is a window onto [**moviebox-tui**](https://github.com/mesamirh/MovieBox-Tui), a free open-source terminal app. Every search, stream lookup, playback and download is done by moviebox-tui. The app runs it in a hidden terminal, types the keys you would, and reads the answers from its screen and cache files.
 
@@ -40,7 +43,18 @@ To update, install a newer Setup.exe over the old one. To remove the app, use Wi
 
 On a Mac the shortcuts use ⌘: ⌘K searches, ⌘1–⌘5 switch sections.
 
-**Phones.** Kope's Kinoteatri runs on Windows and Mac. On Android, moviebox-tui itself (its terminal interface) runs in [Termux](https://termux.dev) and plays in any Android video player such as VLC; see [its install steps](https://github.com/mesamirh/MovieBox-Tui#android-termux). iPhone isn't supported.
+## Watch on a phone (iPhone or Android)
+
+The app on your computer can serve phones on the same network:
+
+1. On the computer: **Settings → Phone** (ტელეფონი) → turn on **Phone access**. A QR code appears.
+2. On the phone: open the camera, point it at the code and tap the link. The app opens in Safari (or Chrome), already paired.
+3. On an iPhone, **Share → Add to Home Screen** gives it an icon; it then opens full screen like an app.
+4. The first time, Windows asks whether Kope's Kinoteatri may use the network: allow it on **private** networks.
+
+On the phone you search, browse and open titles as on the computer. **Play** plays on the phone; the 🖥 button plays on the computer instead (handy when the computer is connected to a TV). Live TV channels play on the phone too. Watched progress shows up in Continue watching on both.
+
+How it works: the computer still does everything. The engine finds and unlocks the stream exactly as for the computer's player; the app hands what the engine would give VLC to the phone instead, turning MovieBox's DASH streams into HLS playlists (what an iPhone plays) and passing the video through unchanged. So the computer must stay on with the app open, and the phone must be on the same Wi-Fi. With [Tailscale](https://tailscale.com) on both, the phone reaches it from anywhere (the Tailscale address is listed under the QR code). The pairing code is in the QR code; **New pairing code** unpairs every phone.
 
 ## What it does
 
@@ -52,9 +66,13 @@ On a Mac the shortcuts use ⌘: ⌘K searches, ⌘1–⌘5 switch sections.
 | **Library** | History (resume, open, remove) and favorites |
 | **Downloads** | Live progress with the file name. **Stop** pauses: download the same title again to continue. Finished and unfinished files show with their subtitles; leftovers of an unfinished download can be deleted |
 | **Live TV** | Add M3U playlists (URL or file), browse channels by group, play, remove playlists |
-| **Settings** | Player, subtitles, download folder, sources, modes, engine location; install VLC |
+| **Settings** | Language, phone access, player, subtitles, download folder, sources, Stremio add-ons, modes, engine location; install VLC |
 
 **Sources.** Switch in the top-right corner: MovieBox (movies, series, anime; subtitles; downloads need yt-dlp), 4KHDHub (4K/HDR/REMUX releases; slow to load streams), Dramachi (Asian dramas). IMDb lists stay put when you switch, and an open search runs again on the new source.
+
+**Add-ons.** Settings → *Add-ons* takes the link of any Stremio add-on (it ends in `manifest.json`). Add-ons that provide streams show up when you pick **Addons** as the source: titles are found through Cinemeta (IMDb), and every add-on's streams are listed together. Add-on streams have no subtitles, and the engine waits 5 seconds for each add-on: the app warns when one is slower.
+
+**Language.** The window speaks Georgian (default) or English; **ქარ / ENG** in the top bar or Settings → *Language* switches at once. Messages from the engine are translated too.
 
 **Subtitles.** MovieBox titles come with subtitles. Settings → Playback → *Subtitles* picks the language loaded into the player, or saved next to a download, without asking (English by default). If a title doesn't have that language, or the setting is *Ask every time*, a dialog lets you choose.
 
@@ -109,6 +127,8 @@ React UI ──IPC──▶ Driver ──keystrokes──▶ moviebox-tui (hidde
 - **Caches** (`src/main/data/mbc.ts`, `cacheIndex.ts`): moviebox-tui stores responses as `MBC1` + MessagePack; posters, synopses, episodes and stream details come from there. Stream URLs never reach the UI.
 - **IMDb** (`src/main/data/imdb.ts`): ratings from IMDb's official [non-commercial dataset](https://developer.imdb.com/non-commercial-datasets/) (refreshed weekly), titles and posters from Cinemeta. Metadata only: playing still goes through the active source.
 - **Setup** (`src/main/tools.ts`): the moviebox-tui installer and the winget installs.
+- **Phone access** (`src/main/phone/`): an HTTP server for phones (the same UI, the window's own handlers over HTTP with a pairing key, engine events as server-sent events). While it is on, the engine's VLC and mpv are small stand-ins (`bridge.ts`): the engine starts one as it would start the player, and the stand-in asks the app whether a phone asked for this play. If not, it starts the real player with the same arguments; if so, the relay (`relay.ts`) serves the stream to the phone: DASH manifests become HLS playlists (`dash.ts`, `mp4.ts`), HLS playlists get their links pointed back at the relay, files pass through with seeking, subtitles become WebVTT. Every request goes to the URL the engine gave its player (usually the engine's own relay on 127.0.0.1), with the headers it gave it.
+- **Languages** (`src/renderer/src/lib/i18n.ts`, `i18n-ka.ts`): English text is the key, the Georgian dictionary the translation; messages from the engine are matched by pattern. `node probe/i18n-check.mjs` lists anything untranslated. Georgian uses Noto Sans Georgian, plus a copy drawn in capitals for uppercase headings (`scripts/make-georgian-fonts.py`).
 
 ```
 src/
@@ -140,4 +160,4 @@ The probes use the real moviebox-tui and its real config. A scenario that enters
 
 ## Credits
 
-[moviebox-tui](https://github.com/mesamirh/MovieBox-Tui) by mesamirh (Apache-2.0 / MIT) does the real work. Ratings: IMDb non-commercial datasets (personal use). Metadata and posters: Cinemeta / metahub. Built with Electron, React, Tailwind CSS, xterm.js and node-pty. Fonts: Big Shoulders Display, Hanken Grotesk, Martian Mono (SIL Open Font License).
+[moviebox-tui](https://github.com/mesamirh/MovieBox-Tui) by mesamirh (Apache-2.0 / MIT) does the real work. Ratings: IMDb non-commercial datasets (personal use). Metadata and posters: Cinemeta / metahub. Built with Electron, React, Tailwind CSS, xterm.js, node-pty, hls.js and qrcode-generator. Fonts: Big Shoulders Display, Hanken Grotesk, Martian Mono, Noto Sans Georgian (SIL Open Font License).

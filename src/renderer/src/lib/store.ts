@@ -17,6 +17,8 @@ import type {
   Toast,
 } from '@shared/types';
 import { errorMessage, mb } from './api';
+import { q, t, tm } from './i18n';
+import { deviceId, isWeb } from './platform';
 
 export type Section = 'home' | 'results' | 'details' | 'library' | 'downloads' | 'tv' | 'settings';
 export interface Route {
@@ -93,14 +95,19 @@ interface State {
   reloadSources(): Promise<void>;
   /** Opens a title from a result list that is already on the engine's screen (live suggestions). */
   openFromView(view: ResultsView, item: ResultItem): Promise<void>;
-  detailsAction(label: string, fn: () => Promise<DetailsView>): Promise<void>;
+  /** Runs `fn` with `label` shown as busy; a failure toasts `failure`. */
+  detailsAction(label: string, failure: string, fn: () => Promise<DetailsView>): Promise<void>;
   selectAudio(i: number): Promise<void>;
   selectSeason(s: number): Promise<void>;
   selectEpisode(s: number, e: number): Promise<void>;
+  /** Plays a stream: on a phone, on that phone; in the desktop window, in the player there. */
   play(streamIndex: number): Promise<void>;
+  /** From a phone: plays on the computer instead. */
+  playOnComputer(streamIndex: number): Promise<void>;
   download(scope: DownloadScope, target: number): Promise<void>;
   toggleFavorite(): Promise<void>;
   resume(entry: HistoryEntry): Promise<void>;
+  resumeOnComputer(entry: HistoryEntry): Promise<void>;
   /** Answers the subtitle question: option index, or -1 to cancel the play or download. */
   chooseSubtitle(index: number): Promise<void>;
   setSubtitles(preference: string): Promise<void>;
@@ -157,7 +164,9 @@ async function loadDetails(
     else
       useStore.setState({
         detailsNotFound: notFound ?? null,
-        detailsError: `“${pending.title}” isn't on ${notFound?.source ?? 'this source'}.`,
+        detailsError: notFound?.source
+          ? t("{title} isn't on {source}.", { title: q(pending.title), source: notFound.source })
+          : t("{title} isn't on this source.", { title: q(pending.title) }),
       });
   } catch (e) {
     if (req === detailsReq) useStore.setState({ detailsError: errorMessage(e) });
@@ -253,9 +262,10 @@ export const useStore = create<State>((set, get) => ({
           break;
         }
         case 'toast': {
-          const t = e.payload;
-          set({ toasts: [...get().toasts.slice(-4), t] });
-          setTimeout(() => get().dismissToast(t.id), t.kind === 'error' ? 8000 : 5000);
+          // The TUI's own notifications arrive in English.
+          const toast = { ...e.payload, title: tm(e.payload.title), message: tm(e.payload.message) };
+          set({ toasts: [...get().toasts.slice(-4), toast] });
+          setTimeout(() => get().dismissToast(toast.id), toast.kind === 'error' ? 8000 : 5000);
           break;
         }
         case 'downloads':
@@ -278,6 +288,10 @@ export const useStore = create<State>((set, get) => ({
           break;
         case 'results':
           if (get().results?.label === e.payload.label) set({ results: e.payload });
+          break;
+        case 'phone-play':
+          // The computer shows what a phone is watching (the phone plays it itself).
+          if (!isWeb) get().toast('info', t('Playing on a phone'), e.payload.title);
           break;
       }
     });
@@ -327,7 +341,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await mb.setProvider(name);
     } catch (e) {
-      get().toast('error', 'Could not switch source', errorMessage(e));
+      get().toast('error', t('Could not switch source'), errorMessage(e));
       return false;
     }
     // IMDb lists don't depend on the source and stay. A search runs again on the new source; other
@@ -337,7 +351,7 @@ export const useStore = create<State>((set, get) => ({
     if (!opts?.stay && get().stack.at(-1)?.name === 'details') get().back();
     if (!opts?.stay && before?.source === 'browse' && get().stack.at(-1)?.name === 'results') get().back();
     await get().refreshStatus();
-    get().toast('info', `Searching ${name}`, 'New searches use this source.');
+    get().toast('info', t('Searching {source}', { source: name }), t('New searches use this source.'));
     if (before?.source === 'search' && get().stack.at(-1)?.name === 'results') void get().search(before.requested ?? before.label);
     // The new source's own Discover lists (MovieBox and Addons have them; others don't).
     await get().reloadCategories();
@@ -357,7 +371,7 @@ export const useStore = create<State>((set, get) => ({
 
   async openImdbList(kind) {
     get().go({ name: 'results' });
-    const label = { movies: 'Top Rated Movies', series: 'Top Rated Series', 'new-movies': 'Best New Movies', 'new-series': 'Best New Series' }[kind] ?? 'IMDb';
+    const label = t({ movies: 'Top Rated Movies', series: 'Top Rated Series', 'new-movies': 'Best New Movies', 'new-series': 'Best New Series' }[kind] ?? 'IMDb');
     await loadResults({ label, kind: 'imdb', retry: () => get().openImdbList(kind) }, () => mb.imdbList(kind));
   },
 
@@ -401,7 +415,7 @@ export const useStore = create<State>((set, get) => ({
     return get().openTitle({ title: f.title, year: f.year, subjectId: f.subjectId, cover: f.cover });
   },
 
-  async detailsAction(label, fn) {
+  async detailsAction(label, failure, fn) {
     set({ detailsBusy: label });
     const title = get().details?.state.title;
     try {
@@ -409,16 +423,20 @@ export const useStore = create<State>((set, get) => ({
       // Ignore the answer if another title was opened meanwhile.
       if (get().details?.state.title === title) set({ details });
     } catch (e) {
-      get().toast('error', label.replace(/…$/, ' failed'), errorMessage(e));
+      get().toast('error', failure, errorMessage(e));
     } finally {
       set({ detailsBusy: null });
     }
   },
 
-  selectAudio: (i) => get().detailsAction('Switching audio…', () => mb.selectAudio(i)),
-  selectSeason: (s) => get().detailsAction(`Loading season ${s}…`, () => mb.selectSeason(s)),
-  selectEpisode: (s, e) => get().detailsAction(`Loading episode ${e}…`, () => mb.selectEpisode(s, e)),
-  play: (i) => get().detailsAction('Starting player…', () => mb.play(i)),
+  selectAudio: (i) => get().detailsAction(t('Switching audio…'), t('Could not switch audio'), () => mb.selectAudio(i)),
+  selectSeason: (s) => get().detailsAction(t('Loading season {n}…', { n: s }), t('Could not load season {n}', { n: s }), () => mb.selectSeason(s)),
+  selectEpisode: (s, e) => get().detailsAction(t('Loading episode {n}…', { n: e }), t('Could not load episode {n}', { n: e }), () => mb.selectEpisode(s, e)),
+  play: (i) =>
+    isWeb
+      ? get().detailsAction(t('Getting it ready for this phone…'), t('Could not start the player'), () => mb.phonePlay(deviceId, i, get().details?.state.title ?? ''))
+      : get().detailsAction(t('Starting player…'), t('Could not start the player'), () => mb.play(i)),
+  playOnComputer: (i) => get().detailsAction(t('Starting the player on the computer…'), t('Could not start the player'), () => mb.play(i)),
 
   async chooseSubtitle(index) {
     set({ subtitleChoice: null });
@@ -426,7 +444,7 @@ export const useStore = create<State>((set, get) => ({
     try {
       await mb.chooseSubtitle(index);
     } catch (e) {
-      get().toast('error', 'Could not continue', errorMessage(e));
+      get().toast('error', t('Could not continue'), errorMessage(e));
     }
   },
 
@@ -437,18 +455,27 @@ export const useStore = create<State>((set, get) => ({
       await mb.saveSettings({ gui: { subtitles: preference } });
     } catch (e) {
       set({ subtitles: previous });
-      get().toast('error', 'Could not save the subtitle setting', errorMessage(e));
+      get().toast('error', t('Could not save the subtitle setting'), errorMessage(e));
     }
   },
-  download: (scope, target) => get().detailsAction('Starting download…', () => mb.download(scope, target)),
-  toggleFavorite: () => get().detailsAction('Updating favorites…', () => mb.toggleFavorite()),
+  download: (scope, target) => get().detailsAction(t('Starting download…'), t('Could not start the download'), () => mb.download(scope, target)),
+  toggleFavorite: () => get().detailsAction(t('Updating favorites…'), t('Could not update favorites'), () => mb.toggleFavorite()),
 
   async resume(entry) {
     try {
-      get().toast('info', `Resuming ${entry.title}`, 'The player opens in a moment.');
+      get().toast('info', t('Resuming {title}', { title: entry.title }), isWeb ? t('It opens on this phone in a moment.') : t('The player opens in a moment.'));
+      await (isWeb ? mb.phoneResume(deviceId, entry) : mb.resume(entry));
+    } catch (e) {
+      get().toast('error', t('Could not resume'), errorMessage(e));
+    }
+  },
+
+  async resumeOnComputer(entry) {
+    try {
+      get().toast('info', t('Resuming {title}', { title: entry.title }), t('The player opens on the computer in a moment.'));
       await mb.resume(entry);
     } catch (e) {
-      get().toast('error', 'Could not resume', errorMessage(e));
+      get().toast('error', t('Could not resume'), errorMessage(e));
     }
   },
 }));

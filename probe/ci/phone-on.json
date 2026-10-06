@@ -1,0 +1,7 @@
+[
+  {"eval": "window.mb.setPhone({ enabled: true }).then(i => 'PHONE ACCESS ' + (i.enabled ? 'ON' : 'OFF') + ' port ' + i.port + (i.error ? ' error: ' + i.error : '') + ' · ' + i.urls.length + ' addresses', e => 'phone access failed: ' + e.message)"},
+  {"wait": 3000},
+  {"until": "/Ready/.test(document.querySelector('nav')?.innerText ?? '')", "timeout": 90000},
+  {"wait": 3000},
+  {"eval": "'engine after phone access: ' + document.querySelector('nav').innerText.replace(/\\s+/g, ' ')"}
+]

@@ -4,6 +4,7 @@ import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { TitleRef } from '@shared/api';
 import type { DownloadScope, EngineEvent, FavoriteEntry, GuiSettings, HistoryEntry, ResultsView, SettingsBundle, TuiSettings } from '@shared/types';
 import { detectPlayers, which } from './binary';
+import { addAddon, addonViews, enableAddon, ENGINE_STREAM_WAIT_SECONDS, fetchAddon, removeAddon, streamAddonNames, timeStreams, updateAddons } from './data/addons';
 import { readGuiSettings, readTuiSettings, writeGuiSettings, writeTuiSettings } from './data/config';
 import { deleteUnfinished, listDownloads } from './data/downloads';
 import { listLabel, listMinVotes, type ImdbListKind, type ImdbService } from './data/imdb';
@@ -14,15 +15,26 @@ import type { EngineManager } from './engine/manager';
 import { cacheDir, configDir, defaultDownloadDir, expandHome } from './paths';
 import { installEngine, installTool, TOOLS, type Tool } from './tools';
 
+export type Handler = (...args: any[]) => unknown;
+
+/**
+ * Registers every channel the window calls; returns them by name too, for the phone server (which
+ * answers a phone's calls with the same handlers). `handle` adds more later (phone access).
+ */
 export function registerIpc(
   engine: EngineManager,
   imdb: ImdbService,
   userData: string,
   getWindow: () => BrowserWindow | null,
-  fetchFn: (url: string) => Promise<Response>,
-): void {
+  fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
+  hooks: { beforePlay: () => Promise<void> } = { beforePlay: async () => undefined },
+): { handlers: Map<string, Handler>; handle: (channel: string, fn: Handler) => void } {
   const driver = () => engine.requireDriver();
-  const handle = (channel: string, fn: (...args: any[]) => unknown) => ipcMain.handle(channel, (_e, ...args) => fn(...args));
+  const handlers = new Map<string, Handler>();
+  const handle = (channel: string, fn: Handler) => {
+    handlers.set(channel, fn);
+    ipcMain.handle(channel, (_e, ...args) => fn(...args));
+  };
 
   const env = () => {
     const tui = readTuiSettings();
@@ -33,7 +45,19 @@ export function registerIpc(
       ytDlp: which('yt-dlp'),
       ffmpeg: which('ffmpeg'),
       players: detectPlayers({ vlc: tui?.vlcPath, mpv: tui?.mpvPath, iina: tui?.iinaPath }),
+      streamAddons: streamAddonNames(),
     };
+  };
+
+  /** The engine reads its config files when it starts: stop it, change them, start it again. */
+  const withEngineStopped = async (change: () => void) => {
+    engine.driver?.forgetSources();
+    await engine.stop();
+    try {
+      change();
+    } finally {
+      void engine.start(); // even if writing failed, don't leave the engine stopped
+    }
   };
 
   handle('app:status', () => ({ status: engine.status, env: env() }));
@@ -114,14 +138,21 @@ export function registerIpc(
   handle('details:audio', (i: number) => driver().selectAudio(i));
   handle('details:season', (s: number) => driver().selectSeason(s));
   handle('details:episode', (s: number, e: number) => driver().selectEpisode(s, e));
-  handle('play', (i: number) => driver().play(i));
+  // A phone still watching holds the engine's player: it gives way to a new play.
+  handle('play', async (i: number) => {
+    await hooks.beforePlay();
+    return driver().play(i);
+  });
   handle('subtitles:choose', (i: number) => driver().chooseSubtitle(i));
   handle('download', (scope: DownloadScope, target: number) => driver().download(scope, target));
   handle('favorite:toggle', () => driver().toggleFavorite());
   handle('downloads:cancel', () => driver().cancelDownloads());
 
   handle('library:get', () => readLibrary());
-  handle('history:resume', (h: HistoryEntry) => driver().resume(h));
+  handle('history:resume', async (h: HistoryEntry) => {
+    await hooks.beforePlay();
+    return driver().resume(h);
+  });
   handle('history:remove', (h: HistoryEntry) => driver().removeFromHistory(h));
   handle('favorite:open', (f: FavoriteEntry) => openTitle({ title: f.title, year: f.year, subjectId: f.subjectId }));
 
@@ -174,12 +205,42 @@ export function registerIpc(
     if (readPlaylistSources().includes(source)) throw new Error('The engine kept the playlist. Remove it from the console with /config in Live TV mode.');
     return readTv(true);
   });
-  handle('tv:play', (name: string, group?: string) => driver().tvPlay(name, group));
+  handle('tv:play', async (name: string, group?: string) => {
+    await hooks.beforePlay();
+    return driver().tvPlay(name, group);
+  });
   handle('tv:leave', () => driver().leaveTv());
+
+  // Stremio add-ons for the Addons source (the manifest is read here, the engine does the rest).
+  handle('addons:list', () => addonViews());
+  handle('addons:add', async (url: string) => {
+    const addon = await fetchAddon(url, fetchFn);
+    // While the engine restarts, see whether the add-on answers in the time the engine allows it.
+    const [seconds] = await Promise.all([
+      addon.provides_stream ? timeStreams(addon, fetchFn) : Promise.resolve(null),
+      withEngineStopped(() => updateAddons(addAddon(addon))),
+    ]);
+    const addons = addonViews();
+    const slow = seconds !== null && seconds > ENGINE_STREAM_WAIT_SECONDS ? Math.round(seconds) : undefined;
+    return { addons, added: addons.find((a) => a.url === addon.manifest_url)!, slow };
+  });
+  handle('addons:remove', async (url: string) => {
+    await withEngineStopped(() => updateAddons(removeAddon(url)));
+    return addonViews();
+  });
+  handle('addons:enable', async (url: string, enabled: boolean) => {
+    await withEngineStopped(() => updateAddons(enableAddon(url, enabled)));
+    return addonViews();
+  });
 
   const bundle = (): SettingsBundle => ({ tui: readTuiSettings(), gui: readGuiSettings(userData) });
   handle('settings:get', bundle);
   handle('settings:save', async (patch: { tui?: Partial<TuiSettings>; gui?: Partial<GuiSettings> }) => {
+    // Phone access has its own channel (a Settings page open since before would undo it).
+    if (patch.gui) {
+      const { phone: _phone, ...rest } = patch.gui;
+      patch = { ...patch, gui: rest };
+    }
     const gui = readGuiSettings(userData);
     // The window's own preferences (subtitles) apply at once; only engine settings need a restart.
     if (!patch.tui && (patch.gui?.binaryPath === undefined || patch.gui.binaryPath === gui.binaryPath)) {
@@ -187,16 +248,14 @@ export function registerIpc(
       return bundle();
     }
     // The TUI reads config.json at startup, so stop it first and start it again after writing.
-    engine.driver?.forgetSources();
-    await engine.stop();
-    try {
+    await withEngineStopped(() => {
       if (patch.tui) writeTuiSettings(patch.tui);
       if (patch.gui) writeGuiSettings(userData, { ...readGuiSettings(userData), ...patch.gui });
-    } finally {
-      void engine.start(); // even if writing failed, don't leave the engine stopped
-    }
+    });
     return bundle();
   });
+
+  return { handlers, handle };
 }
 
 export function forwardEvents(engine: EngineManager, send: (e: EngineEvent) => void): void {
