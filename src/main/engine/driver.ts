@@ -975,14 +975,17 @@ export class Driver extends EventEmitter {
    * Titles with several audio tracks open with "Choose an audio track"; pick
    * the original so Play works at once (other tracks stay one click away).
    */
+  /** A title with several audio tracks shows no streams until one is chosen: take Original, else English. */
   private async preferOriginalAudio(): Promise<void> {
     const d = parseDetails(this.s);
     if (!d || this.streamsStatus(d).status !== 'choose-audio') return;
     const audio = d.panes.find((p) => p.name === 'Audio');
-    const first = audio && this.rowsOf(audio)[0]?.text;
-    if (!first || !/^original/i.test(first)) return;
+    const rows = audio ? this.rowsOf(audio).map((r) => r.text.trim()) : [];
+    let index = rows.findIndex((t) => /^original/i.test(t));
+    if (index < 0) index = rows.findIndex((t) => /^english$/i.test(t));
+    if (index < 0) return; // the person chooses
     const before = this.streamsSignature(this.s);
-    await this.applyAudio(0);
+    await this.applyAudio(index);
     await this.settleStreams(before);
   }
 

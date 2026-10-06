@@ -18,13 +18,29 @@ It is a window onto [**moviebox-tui**](https://github.com/mesamirh/MovieBox-Tui)
 1. Download **[KopesKinoteatri-Setup.exe](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest/download/KopesKinoteatri-Setup.exe)** (always the newest version; release notes on the [releases page](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest)).
 2. Run it. It installs for your user only (no admin prompt) and adds Desktop and Start-menu shortcuts. The installer isn't code-signed, so Windows SmartScreen may say *"Windows protected your PC"*: click **More info → Run anyway**.
 3. On first start the app checks for what it needs:
-   - **moviebox-tui (required).** If it isn't installed, click **Install moviebox-tui**. The app downloads its official GitHub release (about 5 MB), checks it against the release's SHA-256 checksums, and puts it where moviebox-tui's own installer would: `%LOCALAPPDATA%\Programs\MovieBox-Tui\bin`.
+   - **moviebox-tui (required).** If it isn't installed, click **Install moviebox-tui**. The app downloads its official GitHub release (a few MB), checks it against the release's SHA-256 checksums, and puts it where moviebox-tui's own installer would: `%LOCALAPPDATA%\Programs\MovieBox-Tui\bin`.
    - **A video player (required to play).** Without VLC or mpv, Home shows **Install VLC**, which uses winget. Windows asks for permission because VLC installs for all users.
    - **yt-dlp (only for MovieBox downloads).** The Downloads page offers **Install yt-dlp** (winget, together with ffmpeg).
 
 To update, install a newer Setup.exe over the old one. To remove the app, use Windows Settings → Apps. Your history, favorites and settings belong to moviebox-tui and stay.
 
-**Phones.** Kope's Kinoteatri is a Windows app. On Android, moviebox-tui itself (its terminal interface) runs in [Termux](https://termux.dev) and plays in any Android video player such as VLC; see [its install steps](https://github.com/mesamirh/MovieBox-Tui#android-termux). iPhone isn't supported.
+## Install (Mac)
+
+1. Download the disk image for your Mac:
+   - **[Apple Silicon (M1 and newer)](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest/download/KopesKinoteatri-mac-apple-silicon.dmg)**;
+   - **[Intel](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest/download/KopesKinoteatri-mac-intel.dmg)**.
+
+   Not sure which you have? Apple menu → About This Mac: "Chip: Apple M…" means Apple Silicon.
+2. Open it and drag **Kope's Kinoteatri** into **Applications**.
+3. Start it. The app isn't signed with an Apple Developer ID, so the first time macOS refuses to open it. Open **System Settings → Privacy & Security**, scroll down to *"Kope's Kinoteatri" was blocked…* and click **Open Anyway**. After that it opens normally.
+4. As on Windows, the app offers to install what's missing:
+   - **moviebox-tui:** its official macOS release, checksum-verified, into `~/.local/bin`, where the engine's own installer puts it. If you prefer Homebrew: `brew tap mesamirh/moviebox-tui https://github.com/mesamirh/MovieBox-Tui && brew install moviebox-tui`.
+   - **A player:** IINA, mpv or VLC. The app installs VLC with Homebrew if you have it, otherwise it opens VLC's download page.
+   - **yt-dlp:** only for MovieBox downloads.
+
+On a Mac the shortcuts use ⌘: ⌘K searches, ⌘1–⌘5 switch sections.
+
+**Phones.** Kope's Kinoteatri runs on Windows and Mac. On Android, moviebox-tui itself (its terminal interface) runs in [Termux](https://termux.dev) and plays in any Android video player such as VLC; see [its install steps](https://github.com/mesamirh/MovieBox-Tui#android-termux). iPhone isn't supported.
 
 ## What it does
 
@@ -64,17 +80,18 @@ Requires Node.js 20+ (CI uses 22).
 npm ci
 npm run dev          # development, with hot reload
 npm run typecheck    # type-check main process and UI
-npm run dist         # installer: dist/KopesKinoteatri-Setup-<version>.exe
+npm run dist         # Windows installer: dist/KopesKinoteatri-Setup-<version>.exe
+npm run dist:mac     # on a Mac: dist/KopesKinoteatri-<version>-mac-{arm64,x64}.dmg
 ```
 
-`npm run package` builds only the unpacked app (`dist/KopesKinoteatri-win32-x64/KopesKinoteatri.exe`); `npm run dist` packages it and wraps it in the installer (electron-builder, NSIS). `npm run icon` redraws the icon (`scripts/make-icon.py`, needs Pillow).
+On Windows, `npm run package` builds only the unpacked app (`dist/KopesKinoteatri-win32-x64/KopesKinoteatri.exe`); `npm run dist` packages it and wraps it in the installer (electron-builder, NSIS). On a Mac, `npm run dist:mac` has electron-builder package the app for Apple Silicon and Intel and make a disk image of each. The Intel image needs the Intel build of the terminal library next to the Mac's own: `npm install --no-save --force @lydell/node-pty-darwin-x64@<its version>` (CI does this). `scripts/after-pack.cjs` signs the Mac app ad hoc. `npm run icon` redraws the icons (`scripts/make-icon.py`, needs Pillow; Windows .ico and a 1024 px Mac icon).
 
 ### Releasing a new version
 
 1. Raise `version` in `package.json` and commit.
 2. Tag and push: `git tag v1.0.1 && git push origin main v1.0.1`.
 
-GitHub Actions (`.github/workflows/release.yml`) builds the installer on Windows. It attaches the installer to a release for that tag twice: as `KopesKinoteatri-Setup-<version>.exe` and as `KopesKinoteatri-Setup.exe`. The second name keeps one link working for every version: `https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest/download/KopesKinoteatri-Setup.exe`.
+GitHub Actions (`.github/workflows/release.yml`) builds the Windows installer on Windows and both Mac disk images on a Mac. The Mac job also runs a first-run check on a clean Mac: install the engine from the app's own button, load Discover, search, open a title, with screenshots kept as a run artifact. Each file is attached to the release twice: with its version (`KopesKinoteatri-Setup-<version>.exe`, `KopesKinoteatri-<version>-mac-arm64.dmg`…) and under a fixed name (`KopesKinoteatri-Setup.exe`, `KopesKinoteatri-mac-apple-silicon.dmg`, `KopesKinoteatri-mac-intel.dmg`), so `…/releases/latest/download/<fixed name>` links always give the newest version. "Run workflow" in the Actions tab builds and checks without publishing.
 
 ## How it works
 

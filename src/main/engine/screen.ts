@@ -87,7 +87,8 @@ export function classify(s: Screen): ScreenKind {
   if (t.includes('╭ Settings & Preferences')) return 'settings';
   if (/╭ Browse · \d+\/\d+/.test(t)) return 'browse';
   if (t.includes('╭ TV Playlists')) return 'tv-playlists';
-  if (t.includes('[Ctrl+S] Stream')) return 'tv';
+  // The TUI writes control keys as "Ctrl+S" on Windows and Linux and as "^S" on macOS.
+  if (/\[(?:Ctrl\+S|\^S)\] Stream/.test(t)) return 'tv';
   if (t.includes('Discover Categories')) return 'home';
   if (/Searching for “/.test(t)) return 'searching';
   if (/╭ (› )?(Audio|Seasons|Episodes|Streams)\b/.test(t)) return 'details';
@@ -130,9 +131,9 @@ export function parseInput(s: Screen): InputLine | null {
   return null;
 }
 
-/** `[MovieBox · Ctrl+P]` → `MovieBox`; the addons source shows a bare `[Addons]`. */
+/** `[MovieBox · Ctrl+P]` (macOS: `[MovieBox · ^P]`) → `MovieBox`; the addons source shows a bare `[Addons]`. */
 export function providerFromLabel(label: string): string | null {
-  const m = /^\[([^\]·]+?)\s*(?:·\s*Ctrl\+P\s*)?\]$/.exec(label.trim());
+  const m = /^\[([^\]·]+?)\s*(?:·\s*(?:Ctrl\+P|\^P)\s*)?\]$/.exec(label.trim());
   return m ? m[1].trim() : null;
 }
 

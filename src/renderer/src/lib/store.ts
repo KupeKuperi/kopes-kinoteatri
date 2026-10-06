@@ -243,8 +243,13 @@ export const useStore = create<State>((set, get) => ({
       switch (e.type) {
         case 'status': {
           set({ status: e.payload });
-          // Categories and sources come from the engine; fetch them the first time it is idle.
-          if (e.payload.state === 'ready' && (!get().categoriesLoaded || !get().providers.length)) void loadEngineData();
+          // Categories and sources come from the engine; fetch them the first time it is idle, and
+          // try again at most once (each try sends the engine to its home screen).
+          if (e.payload.state === 'starting') engineDataTries = 0;
+          if (e.payload.state === 'ready' && (!get().categoriesLoaded || !get().providers.length) && engineDataTries < 2) {
+            engineDataTries++;
+            void loadEngineData();
+          }
           break;
         }
         case 'toast': {
@@ -277,6 +282,7 @@ export const useStore = create<State>((set, get) => ({
       }
     });
     let loading = false;
+    let engineDataTries = 0;
     const loadEngineData = async () => {
       if (loading) return;
       loading = true;
