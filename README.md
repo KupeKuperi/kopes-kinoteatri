@@ -15,7 +15,7 @@ It is a window onto [**moviebox-tui**](https://github.com/mesamirh/MovieBox-Tui)
 
 ## Install (Windows 10 and 11)
 
-1. Download **KopesKinoteatri-Setup.exe** from the [latest release](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest). The repository is private: sign in to GitHub with an account that has access.
+1. Download **[KopesKinoteatri-Setup.exe](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest/download/KopesKinoteatri-Setup.exe)** (always the newest version; release notes on the [releases page](https://github.com/KupeKuperi/kopes-kinoteatri/releases/latest)).
 2. Run it. It installs for your user only (no admin prompt) and adds Desktop and Start-menu shortcuts. The installer isn't code-signed, so Windows SmartScreen may say *"Windows protected your PC"*: click **More info → Run anyway**.
 3. On first start the app checks for what it needs:
    - **moviebox-tui (required).** If it isn't installed, click **Install moviebox-tui**. The app downloads its official GitHub release (about 5 MB), checks it against the release's SHA-256 checksums, and puts it where moviebox-tui's own installer would: `%LOCALAPPDATA%\Programs\MovieBox-Tui\bin`.
@@ -23,6 +23,8 @@ It is a window onto [**moviebox-tui**](https://github.com/mesamirh/MovieBox-Tui)
    - **yt-dlp (only for MovieBox downloads).** The Downloads page offers **Install yt-dlp** (winget, together with ffmpeg).
 
 To update, install a newer Setup.exe over the old one. To remove the app, use Windows Settings → Apps. Your history, favorites and settings belong to moviebox-tui and stay.
+
+**Phones.** Kope's Kinoteatri is a Windows app. On Android, moviebox-tui itself (its terminal interface) runs in [Termux](https://termux.dev) and plays in any Android video player such as VLC; see [its install steps](https://github.com/mesamirh/MovieBox-Tui#android-termux). iPhone isn't supported.
 
 ## What it does
 
