@@ -1,6 +1,7 @@
 // The app's own screens, used as a person would: search, open the first title, play its first
-// stream, close the player. Keeps a screenshot of each screen (CI exports them from the .xcresult).
-// Works with either core: it reads the mode off the search screen.
+// stream (with the engine: the best quality), close the player. Keeps a screenshot of each screen
+// (CI exports them from the .xcresult). Works with either core: it reads the mode off the search
+// screen.
 
 import XCTest
 
@@ -26,7 +27,7 @@ final class ScreensUITests: XCTestCase {
         let field = app.searchFields.firstMatch
         try wait(for: field, 10, "No search field")
         field.tap()
-        field.typeText(engine ? "The Lord of the Rings\n" : "bip bop\n")
+        field.typeText(engine ? "The Lord of the Rings: The Fellowship of the Ring\n" : "bip bop\n")
 
         let result = app.cells.firstMatch
         try wait(for: result, 90, "No search results")
@@ -40,8 +41,8 @@ final class ScreensUITests: XCTestCase {
 
         let close = element("close-player")
         try wait(for: close, 60, "The player didn't open")
-        // Let it play a little, then look.
-        Thread.sleep(forTimeInterval: 8)
+        // Let it play a little (a live stream takes longer to start), then look.
+        Thread.sleep(forTimeInterval: engine ? 15 : 8)
         try checkNoAlert()
         shot("4-player")
         close.tap()
@@ -69,13 +70,19 @@ final class ScreensUITests: XCTestCase {
         }
     }
 
-    /// The app shows its errors as alerts.
+    /// The app shows its errors as alerts, the player's as "Playback stopped" with "Try again".
     private func checkNoAlert() throws {
         let alert = app.alerts.firstMatch
-        guard alert.exists else { return }
-        shot("alert")
-        let text = alert.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
-        throw Failure(description: "The app shows an alert: \(text)")
+        if alert.exists {
+            shot("alert")
+            let text = alert.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
+            throw Failure(description: "The app shows an alert: \(text)")
+        }
+        if element("try-again").exists {
+            shot("playback-stopped")
+            let text = app.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " / ")
+            throw Failure(description: "The player stopped: \(text)")
+        }
     }
 
     private func shot(_ name: String) {

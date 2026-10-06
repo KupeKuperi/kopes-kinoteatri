@@ -1,5 +1,6 @@
-// End to end in the iOS Simulator, with whichever core the app was built with (stub or engine):
-// search, open the first title (its default dub), list its streams, play the first one. AVPlayer
+// End to end in the iOS Simulator, with whichever core the app was built with (engine: live
+// MovieBox; stub: canned titles and Apple's test stream): search, open the first title (its default
+// dub), list its streams, play the last (lightest) one. AVPlayer
 // must really play it: ready to play, then its clock advances at least 5 seconds. And "Try again"
 // after a failure in the middle of a film resumes where it stopped. Leaves a frame of the video and
 // a summary as attachments (CI exports them from the .xcresult).
@@ -93,14 +94,15 @@ final class PlaybackTests: XCTestCase {
 
     // MARK: Search to play
 
-    /// Search, the first title (its default dub, as the app opens it), its first stream, play.
+    /// Search, the first title (its default dub, as the app opens it), its last stream (the lightest
+    /// quality, easiest on CI's virtual Macs; the UI test plays the first), play.
     @MainActor
     private func openFirstStream() async throws -> Playing {
         note("data folder: \(core.startedDataDir?.path ?? "?")")
         let version = try await core.version()
         note("core \(version.core), engine \(version.engine), mode \(version.mode)")
 
-        let query = version.mode == "engine" ? "The Lord of the Rings" : "bip bop"
+        let query = version.mode == "engine" ? "The Lord of the Rings: The Fellowship of the Ring" : "bip bop"
         let results = try await core.search(query)
         note("search \"\(query)\": \(results.count) titles: \(results.prefix(5).map { "\($0.title) (\($0.kind), \($0.id))" })")
         let first = try XCTUnwrap(results.first, "Nothing found for \(query)")
@@ -122,7 +124,8 @@ final class PlaybackTests: XCTestCase {
 
         let streams = try await core.streams(id: details.id, season: season, episode: episode)
         note("streams (S\(season) E\(episode)): \(streams.map(\.label))")
-        let stream = try XCTUnwrap(streams.first, "No streams")
+        let stream = try XCTUnwrap(streams.last, "No streams")
+        note("playing stream \(stream.index): \(stream.label)")
 
         let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index)
         let play = try await core.play(request)
