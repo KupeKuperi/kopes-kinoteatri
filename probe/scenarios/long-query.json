@@ -1,0 +1,14 @@
+[
+  {"until": "v0\\.1\\.", "timeout": 20000},
+  {"wait": 1500},
+  {"type": "The Lord of the Rings: The Fellowship of the Ring"},
+  {"wait": 600},
+  {"dump": "typed"},
+  {"key": "enter"},
+  {"until": "Item \\d+ of \\d+|No results", "timeout": 30000},
+  {"wait": 1500},
+  {"dump": "results"},
+  {"key": "esc"},
+  {"wait": 600},
+  {"dump": "after-esc"}
+]

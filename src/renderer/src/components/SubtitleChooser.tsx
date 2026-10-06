@@ -1,0 +1,58 @@
+import { useEffect, useRef } from 'react';
+import { Subtitles } from 'lucide-react';
+import { useStore } from '@/lib/store';
+import { Button, Eyebrow } from './ui';
+
+/**
+ * The engine's question before it plays or downloads a title with subtitles. It only reaches the
+ * window when the subtitle setting is "Ask every time" or the title lacks the chosen language.
+ */
+export function SubtitleChooser() {
+  const choice = useStore((s) => s.subtitleChoice);
+  const preference = useStore((s) => s.subtitles);
+  const choose = useStore((s) => s.chooseSubtitle);
+  const box = useRef<HTMLDivElement>(null);
+
+  // Start on the likeliest answer: the preferred language, else English, else the first language.
+  const options = choice?.options ?? [];
+  const find = (name: string) => options.findIndex((o, i) => i > 0 && o.toLowerCase().startsWith(name.toLowerCase()));
+  const focusIndex = [find(preference), find('English'), options.length > 1 ? 1 : 0].find((i) => i >= 0) ?? 0;
+
+  useEffect(() => {
+    if (choice) box.current?.querySelector<HTMLButtonElement>('[data-autofocus]')?.focus();
+  }, [choice]);
+
+  if (!choice) return null;
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-house/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Choose subtitles">
+      <div ref={box} data-nav-scope="dialog" className="max-h-[82vh] w-[520px] overflow-y-auto rounded-2xl border border-seam bg-velvet p-7 shadow-2xl animate-rise">
+        <Eyebrow className="flex items-center gap-2">
+          <Subtitles size={14} /> {choice.purpose === 'download' ? 'Before downloading' : 'Before playing'}
+        </Eyebrow>
+        <h2 className="mt-2 font-display text-[32px] font-extrabold uppercase leading-[0.95] tracking-wide">{choice.title || 'Subtitles'}</h2>
+        <p className="mt-2 text-[13px] leading-relaxed text-usher">
+          Which subtitles should {choice.purpose === 'download' ? 'be saved with the video' : 'load into the player'}?
+        </p>
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          {options.map((o, i) => (
+            <Button
+              key={`${i}-${o}`}
+              data-autofocus={i === focusIndex ? '' : undefined}
+              variant={i === 0 ? 'quiet' : 'ghost'}
+              className="!justify-start"
+              onClick={() => void choose(i)}
+            >
+              {o}
+            </Button>
+          ))}
+        </div>
+        <div className="mt-6 flex items-center justify-between gap-3 border-t border-seam/70 pt-4">
+          <span className="text-[12px] leading-snug text-dim">Settings → Playback sets the language picked without asking.</span>
+          <Button variant="quiet" onClick={() => void choose(-1)}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}

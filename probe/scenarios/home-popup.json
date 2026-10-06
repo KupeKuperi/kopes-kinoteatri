@@ -1,0 +1,16 @@
+[
+  {"until": "Discover Categories", "timeout": 20000},
+  {"dump": "start"},
+  {"key": "ctrl+u"},
+  {"wait": 400},
+  {"dump": "after-ctrl-u"},
+  {"type": "The Lord of"},
+  {"wait": 1200},
+  {"dump": "typed-short"},
+  {"type": " the Rings: The Fellowship of the Ring"},
+  {"wait": 1500},
+  {"dump": "typed-long"},
+  {"key": "ctrl+u"},
+  {"wait": 600},
+  {"dump": "cleared"}
+]

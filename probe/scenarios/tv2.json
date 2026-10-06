@@ -1,0 +1,13 @@
+[
+  { "until": "TV Playlists|Search movies|No channels" , "dump": "start" },
+  { "key": "esc", "wait": 1500, "dump": "after-esc" },
+  { "key": "down", "wait": 500, "dump": "down" },
+  { "type": "apple", "wait": 1200, "dump": "filter" },
+  { "key": "ctrl+u", "wait": 800, "dump": "filter-cleared" },
+  { "type": "/list", "wait": 300 }, { "key": "enter", "wait": 1500, "dump": "list" },
+  { "key": "esc", "wait": 600 },
+  { "key": "ctrl+u", "wait": 300 },
+  { "type": "/config", "wait": 300 }, { "key": "enter", "wait": 1500, "dump": "config" },
+  { "key": "esc", "wait": 800, "dump": "config-esc" },
+  { "key": "ctrl+s", "wait": 1500, "dump": "streaming" }
+]

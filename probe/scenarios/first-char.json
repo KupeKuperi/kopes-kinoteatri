@@ -1,0 +1,20 @@
+[
+  { "until": "Search movies" },
+  { "type": "gx", "wait": 500, "dump": "g" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "Gx", "wait": 500, "dump": "G" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "jx", "wait": 500, "dump": "j" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "kx", "wait": 500, "dump": "k" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "cx", "wait": 500, "dump": "c" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "?x", "wait": 500, "dump": "question" }, { "key": "esc", "wait": 300 }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "rx", "wait": 500, "dump": "r" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "fx", "wait": 500, "dump": "f" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "px", "wait": 500, "dump": "p" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "ix", "wait": 500, "dump": "i" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "hx", "wait": 500, "dump": "h" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "lx", "wait": 500, "dump": "l" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "xx", "wait": 500, "dump": "x" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "1x", "wait": 500, "dump": "digit" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "abc", "wait": 300 }, { "key": "home", "wait": 300 }, { "type": "Z", "wait": 500, "dump": "home-then-Z" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "abc", "wait": 300 }, { "key": "left", "repeat": 2, "wait": 300 }, { "type": "Z", "wait": 500, "dump": "left2-then-Z" }, { "key": "ctrl+u", "wait": 300 }, { "key": "esc", "wait": 300 },
+  { "type": "qx", "wait": 800, "dump": "q" }
+]

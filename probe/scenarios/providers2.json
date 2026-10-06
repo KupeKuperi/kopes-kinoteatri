@@ -1,0 +1,15 @@
+[
+  { "until": "Dramachi · Ctrl\\+P" },
+  { "type": "/browse" }, { "key": "enter", "wait": 2500, "dump": "drama-browse" },
+  { "key": "esc", "wait": 500 }, { "key": "esc", "wait": 500 }, { "key": "ctrl+u", "wait": 300 },
+  { "type": "vincenzo" }, { "key": "enter", "until": "Item 1 of|results?\\s*$|No results", "timeout": 30000, "dump": "drama-search" },
+  { "wait": 1500 }, { "key": "enter", "wait": 12000, "dump": "drama-details" },
+  { "wait": 15000, "dump": "drama-details-later" },
+  { "key": "esc", "wait": 800 }, { "key": "esc", "wait": 800 }, { "key": "esc", "wait": 800 }, { "key": "ctrl+u", "wait": 300 },
+  { "key": "ctrl+p", "wait": 800 }, { "key": "ctrl+p", "wait": 800 }, { "key": "ctrl+p", "until": "4KHDHub · Ctrl\\+P", "dump": "4k-home" },
+  { "type": "dune part two" }, { "key": "enter", "until": "Item 1 of|results?\\s*$|No results", "timeout": 40000, "dump": "4k-search" },
+  { "wait": 1500 }, { "key": "enter", "wait": 30000, "dump": "4k-details" },
+  { "wait": 30000, "dump": "4k-details-later" },
+  { "key": "esc", "wait": 800 }, { "key": "esc", "wait": 800 }, { "key": "esc", "wait": 800 }, { "key": "ctrl+u", "wait": 300 },
+  { "key": "ctrl+p", "until": "Dramachi · Ctrl\\+P", "dump": "back-to-dramachi" }
+]

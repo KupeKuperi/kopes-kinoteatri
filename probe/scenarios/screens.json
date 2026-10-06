@@ -1,0 +1,18 @@
+[
+  { "until": "Search movies" },
+  { "type": "/history" }, { "key": "enter", "wait": 1500, "dump": "history" },
+  { "key": "esc", "wait": 600 }, { "key": "ctrl+u", "wait": 200 },
+  { "type": "/favorites" }, { "key": "enter", "wait": 1500, "dump": "favorites" },
+  { "key": "esc", "wait": 600 }, { "key": "ctrl+u", "wait": 200 },
+  { "type": "/browse" }, { "key": "enter", "wait": 4000, "dump": "browse" },
+  { "key": "down", "wait": 500, "dump": "browse-down" },
+  { "key": "esc", "wait": 600 }, { "key": "ctrl+u", "wait": 200 },
+  { "type": "/settings" }, { "key": "enter", "wait": 1500, "dump": "settings" },
+  { "key": "down", "wait": 400, "dump": "settings-down" },
+  { "key": "tab", "wait": 400, "dump": "settings-tab" },
+  { "key": "esc", "wait": 600 }, { "key": "ctrl+u", "wait": 200 },
+  { "type": "/" , "wait": 800, "dump": "slash-palette" },
+  { "key": "ctrl+u", "wait": 200 },
+  { "key": "ctrl+t", "wait": 3000, "dump": "tv" },
+  { "key": "ctrl+s", "wait": 1500, "dump": "back-streaming" }
+]

@@ -1,0 +1,10 @@
+[
+  { "until": "Search movies" },
+  { "type": "/browse" }, { "key": "enter", "until": "Browse · 1/4" },
+  { "key": "down", "wait": 300 },
+  { "key": "enter", "until": "Item 1 of", "dump": "page1" },
+  { "key": "end", "wait": 1500, "dump": "end" },
+  { "key": "pgdn", "wait": 5000, "dump": "end-pgdn" },
+  { "key": "right", "wait": 4000, "dump": "right" },
+  { "key": "down", "wait": 4000, "dump": "down-past-end" }
+]

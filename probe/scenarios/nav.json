@@ -1,0 +1,19 @@
+[
+  { "wait": 3000 },
+  { "type": "bleach", "wait": 200 },
+  { "key": "enter", "wait": 5000, "dump": "results" },
+  { "key": "down", "wait": 400, "dump": "results-down1" },
+  { "key": "esc", "wait": 800, "dump": "esc-from-results" },
+  { "key": "enter", "wait": 4000, "dump": "enter-again" },
+  { "key": "pgdn", "wait": 600, "dump": "pgdn" },
+  { "key": "home", "wait": 400, "dump": "home-key" },
+  { "key": "enter", "wait": 5000, "dump": "details" },
+  { "key": "down", "wait": 400, "dump": "season-down" },
+  { "key": "enter", "wait": 3000, "dump": "season-enter" },
+  { "key": "down", "repeat": 2, "wait": 3000, "dump": "ep-down2" },
+  { "key": "enter", "wait": 4000, "dump": "ep-enter" },
+  { "key": "up", "repeat": 30, "wait": 400, "dump": "ep-up30" },
+  { "key": "tab", "wait": 600 },
+  { "key": "down", "wait": 400, "dump": "streams-down" },
+  { "key": "shift+tab", "wait": 600, "dump": "shift-tab" }
+]

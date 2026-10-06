@@ -1,0 +1,5 @@
+[
+  { "wait": 4000, "dump": "start" },
+  { "key": "?", "wait": 800, "dump": "help" },
+  { "key": "esc", "wait": 500, "dump": "after-esc" }
+]

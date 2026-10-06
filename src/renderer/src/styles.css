@@ -1,0 +1,128 @@
+@import '@fontsource/big-shoulders-display/700';
+@import '@fontsource/big-shoulders-display/800';
+@import '@fontsource-variable/hanken-grotesk';
+@import '@fontsource/martian-mono/400';
+@import '@fontsource/martian-mono/500';
+@import 'tailwindcss';
+
+/* "House lights down": the room is velvet, the screen is warm silver, and the
+   only light source is the marquee bulb. */
+@theme {
+  --color-house: #160d12;
+  --color-velvet: #20141b;
+  --color-curtain: #2c1b25;
+  --color-seam: #3d2833;
+  --color-screen: #f4eadf;
+  --color-usher: #a8939c;
+  --color-dim: #75636c;
+  --color-bulb: #ffc65c;
+  --color-bulb-deep: #e0a43a;
+  --color-ok: #7ed6a0;
+  --color-err: #ff7a6b;
+
+  --font-display: 'Big Shoulders Display', 'Bahnschrift', sans-serif;
+  --font-sans: 'Hanken Grotesk Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Martian Mono', 'Cascadia Mono', ui-monospace, monospace;
+
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-rise: rise 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes shimmer {
+  0% { background-position: -160% 0; }
+  100% { background-position: 260% 0; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chase {
+  to { background-position: 8px 0, 0 8px; }
+}
+
+/* Base styles live in the base layer so Tailwind utilities can override them. */
+@layer base {
+html, body, #root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--color-house);
+  color: var(--color-screen);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+input, textarea, [data-selectable] {
+  user-select: text;
+}
+button {
+  cursor: default;
+}
+::selection {
+  background: rgb(255 198 92 / 0.35);
+}
+
+/* Window chrome */
+.drag { -webkit-app-region: drag; }
+.no-drag { -webkit-app-region: no-drag; }
+
+/* Scrollbars that sit in the velvet */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-seam) transparent;
+}
+
+/* Default focus: a solid bulb-coloured ring. */
+:focus-visible {
+  outline: 2px solid var(--color-bulb);
+  outline-offset: 2px;
+}
+}
+
+/* Signature: the focused poster is ringed with marquee bulbs. */
+.marquee {
+  position: relative;
+  outline: none !important;
+}
+.marquee::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 16px;
+  padding: 3px;
+  background:
+    radial-gradient(circle, var(--color-bulb) 0 1.5px, transparent 2px) 0 0 / 8px 8px,
+    radial-gradient(circle, rgb(255 198 92 / 0.35) 0 1.5px, transparent 2px) 4px 4px / 8px 8px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  filter: drop-shadow(0 0 3px rgb(255 198 92 / 0.75));
+  opacity: 0;
+  transition: opacity 0.14s ease;
+  pointer-events: none;
+}
+.marquee:hover::after {
+  opacity: 0.4;
+}
+.marquee:focus-visible::after {
+  opacity: 1;
+  animation: chase 0.9s steps(4) infinite;
+}
+
+.skeleton {
+  background: linear-gradient(100deg, var(--color-velvet) 30%, var(--color-curtain) 50%, var(--color-velvet) 70%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

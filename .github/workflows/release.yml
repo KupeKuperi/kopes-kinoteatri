@@ -1,0 +1,43 @@
+# Builds the Windows installer and attaches it to a GitHub release.
+# Runs when a version tag (v1.2.3) is pushed; can also be started by hand from the Actions tab.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run dist
+
+      - name: Publish the installer
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="$GITHUB_REF_NAME"
+          [[ "$GITHUB_REF_TYPE" == tag ]] || tag="v$version"
+          setup="dist/KopesKinoteatri-Setup-$version.exe"
+          # A fixed name too, so .../releases/latest/download/KopesKinoteatri-Setup.exe always works.
+          cp "$setup" dist/KopesKinoteatri-Setup.exe
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "Kope's Kinoteatri $version" \
+              --notes "Download **KopesKinoteatri-Setup.exe** below and run it. Windows may warn that the installer isn't signed: More info → Run anyway."
+          fi
+          gh release upload "$tag" "$setup" dist/KopesKinoteatri-Setup.exe --clobber

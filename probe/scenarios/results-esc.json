@@ -1,0 +1,11 @@
+[
+  { "until": "Search movies" },
+  { "type": "dune" },
+  { "key": "enter", "until": "Item 1 of", "dump": "results-list" },
+  { "wait": 600 },
+  { "key": "esc", "wait": 700, "dump": "esc-1" },
+  { "key": "esc", "wait": 700, "dump": "esc-2" },
+  { "key": "esc", "wait": 700, "dump": "esc-3" },
+  { "type": "x", "wait": 500, "dump": "typed-x" },
+  { "key": "ctrl+u", "wait": 600, "dump": "ctrl-u" }
+]

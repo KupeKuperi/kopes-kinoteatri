@@ -1,0 +1,13 @@
+[
+  { "until": "Search movies" },
+  { "type": "dune" },
+  { "key": "enter", "until": "Item 1 of" },
+  { "key": "enter", "until": "Streams \\(\\d", "timeout": 20000, "dump": "details" },
+  { "key": "f", "wait": 1200, "dump": "fav-on" },
+  { "key": "tab", "wait": 400 }, { "key": "tab", "wait": 400, "dump": "streams-focus" },
+  { "key": "down", "repeat": 2, "wait": 400, "dump": "smallest-stream" },
+  { "key": "d", "wait": 4000, "dump": "download" },
+  { "wait": 4000, "dump": "download-later" },
+  { "key": "x", "wait": 1500, "dump": "cancel" },
+  { "key": "f", "wait": 1200, "dump": "fav-off" }
+]

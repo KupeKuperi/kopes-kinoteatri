@@ -1,0 +1,56 @@
+{
+  "name": "kopes-kinoteatri",
+  "version": "1.0.0",
+  "description": "Kope's Kinoteatri: a desktop app for moviebox-tui (movies, series, anime, live TV)",
+  "author": "KupeKuperi",
+  "homepage": "https://github.com/KupeKuperi/kopes-kinoteatri",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KupeKuperi/kopes-kinoteatri.git"
+  },
+  "private": true,
+  "main": "out/main/index.js",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "probe": "node probe/probe.mjs",
+    "probe:driver": "esbuild probe/driver-test.ts --bundle --platform=node --format=cjs --packages=external --outfile=probe/out/driver-test.cjs && node probe/out/driver-test.cjs",
+    "package": "electron-vite build && node scripts/package.mjs",
+    "icon": "python scripts/make-icon.py",
+    "dist": "npm run package && electron-builder --win nsis --prepackaged dist/KopesKinoteatri-win32-x64 --publish never"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.15",
+    "@msgpack/msgpack": "^3.1.3",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "@fontsource-variable/hanken-grotesk": "^5.3.0",
+    "@fontsource/big-shoulders-display": "^5.3.0",
+    "@fontsource/martian-mono": "^5.3.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "@xterm/xterm": "^6.0.0",
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "lucide-react": "^0.540.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.1.0",
+    "zustand": "^5.0.0"
+  },
+  "productName": "Kope's Kinoteatri"
+}

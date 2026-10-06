@@ -1,0 +1,5 @@
+[
+  { "until": "TV Playlists|Search movies" , "dump": "start" },
+  { "key": "esc", "wait": 800, "dump": "esc" },
+  { "key": "ctrl+s", "wait": 1500, "dump": "ctrl-s" }
+]

@@ -1,0 +1,15 @@
+[
+  { "wait": 3000 },
+  { "type": "dune", "wait": 300, "dump": "typed" },
+  { "key": "enter", "wait": 6000, "dump": "results" },
+  { "key": "right", "wait": 600, "dump": "right" },
+  { "key": "down", "wait": 600, "dump": "down" },
+  { "key": "left", "wait": 300 },
+  { "key": "up", "wait": 300 },
+  { "key": "enter", "wait": 6000, "dump": "details" },
+  { "key": "tab", "wait": 800, "dump": "details-tab1" },
+  { "key": "tab", "wait": 800, "dump": "details-tab2" },
+  { "key": "i", "wait": 800, "dump": "synopsis" },
+  { "key": "esc", "wait": 500 },
+  { "key": "esc", "wait": 800, "dump": "back" }
+]

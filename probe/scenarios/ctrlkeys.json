@@ -1,0 +1,10 @@
+[
+  { "until": "Search movies" },
+  { "type": "abc def" }, { "wait": 300, "dump": "typed" },
+  { "key": "ctrl+u", "wait": 500, "dump": "after-ctrl-u" },
+  { "key": "ctrl+t", "wait": 3000, "dump": "tv" },
+  { "key": "ctrl+s", "wait": 1500, "dump": "back-streaming" },
+  { "key": "ctrl+p", "wait": 800, "dump": "provider-1" },
+  { "key": "ctrl+p", "wait": 800, "dump": "provider-2" },
+  { "key": "ctrl+p", "wait": 800, "dump": "provider-3" }
+]

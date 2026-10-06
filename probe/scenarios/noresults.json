@@ -1,0 +1,9 @@
+[
+  { "until": "Search movies" },
+  { "type": "zzqxv nothing" },
+  { "key": "enter", "until": "0 results|No results", "dump": "noresults" },
+  { "wait": 800, "dump": "noresults-later" },
+  { "key": "esc", "wait": 800, "dump": "after-esc" },
+  { "type": "ab", "wait": 600, "dump": "typed-ab" },
+  { "key": "ctrl+u", "wait": 600, "dump": "after-ctrl-u" }
+]

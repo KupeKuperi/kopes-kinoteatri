@@ -1,0 +1,10 @@
+[
+  { "until": "Search movies" },
+  { "type": "/browse" }, { "key": "enter", "until": "Browse · 1/4" },
+  { "key": "down", "wait": 400 },
+  { "key": "enter", "wait": 5000, "dump": "top-rated-all-time" },
+  { "key": "esc", "wait": 600 }, { "key": "esc", "wait": 600 }, { "key": "ctrl+u", "wait": 400 },
+  { "type": "/browse" }, { "key": "enter", "until": "Browse · 1/4" },
+  { "key": "down", "wait": 300 }, { "key": "down", "wait": 400 },
+  { "key": "enter", "wait": 5000, "dump": "top-rated-recent" }
+]

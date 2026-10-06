@@ -1,0 +1,15 @@
+[
+  { "until": "Search movies" },
+  { "type": "bleach thousand" },
+  { "key": "enter", "until": "Item 1 of", "dump": "results" },
+  { "key": "enter", "until": "Seasons \\(", "dump": "details" },
+  { "until": "Streams \\(\\d", "dump": "details-streams-loaded" },
+  { "key": "down", "wait": 1500, "dump": "season-down1" },
+  { "key": "enter", "wait": 2500, "dump": "season-enter" },
+  { "key": "down", "repeat": 2, "wait": 2500, "dump": "ep-down2" },
+  { "key": "enter", "wait": 3000, "dump": "ep-enter" },
+  { "key": "tab", "wait": 500 },
+  { "key": "down", "wait": 500, "dump": "streams-down" },
+  { "key": "esc", "wait": 800, "dump": "esc1" },
+  { "key": "esc", "wait": 800, "dump": "esc2" }
+]

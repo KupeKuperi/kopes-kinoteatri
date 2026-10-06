@@ -1,0 +1,10 @@
+[
+  { "until": "Search movies" },
+  { "type": "dune" },
+  { "key": "enter", "until": "Item 1 of", "dump": "results" },
+  { "key": "enter", "wait": 1500, "dump": "enter-immediately" },
+  { "key": "enter", "wait": 2500, "dump": "enter-again" },
+  { "key": "down", "wait": 300 },
+  { "key": "up", "wait": 300 },
+  { "key": "enter", "wait": 2500, "dump": "enter-after-move" }
+]

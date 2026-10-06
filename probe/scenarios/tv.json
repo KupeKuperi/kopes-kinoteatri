@@ -1,0 +1,13 @@
+[
+  { "until": "Search movies" },
+  { "key": "ctrl+t", "until": "TV Playlists|No channels", "dump": "tv-open" },
+  { "key": "enter", "wait": 1200, "dump": "add-playlist" },
+  { "type": "https://iptv-org.github.io/iptv/countries/ge.m3u", "wait": 400, "dump": "typed-path" },
+  { "key": "enter", "wait": 3000, "dump": "after-add" },
+  { "key": "esc", "wait": 1500, "dump": "channels" },
+  { "key": "down", "wait": 500, "dump": "channels-down" },
+  { "type": "apple", "wait": 1200, "dump": "filter" },
+  { "key": "ctrl+u", "wait": 800, "dump": "filter-cleared" },
+  { "type": "/config", "wait": 300 }, { "key": "enter", "wait": 1500, "dump": "config" },
+  { "key": "down", "wait": 500, "dump": "config-down" }
+]
