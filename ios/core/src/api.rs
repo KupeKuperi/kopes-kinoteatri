@@ -118,4 +118,6 @@ pub struct Source {
     pub headers: Vec<(String, String)>,
     pub subtitle_url: Option<String>,
     pub title: String,
+    /// The picked quality as a height cap (MovieBox: all qualities share one manifest); None = no cap.
+    pub max_height: Option<u64>,
 }

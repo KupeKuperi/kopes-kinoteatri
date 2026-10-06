@@ -136,10 +136,12 @@ CI (`.github/workflows/ios.yml`, public repo so GitHub's Macs are free):
 ## Status
 
 - [x] Toolchain: Rust 1.99 + zig 0.17 in WSL (user space); the engine library builds (56 s).
-- [x] Engine v0.1.26 source in `ios/engine` (unchanged so far).
-- [ ] Skeleton: workspace, C ABI, stub (lead)
-- [ ] HLS + server (agent hls)
-- [ ] Engine bridge + smoke (agent engine)
-- [ ] App + CI (agent app)
+- [x] Engine v0.1.26 source in `ios/engine`; one change so far (iOS DNS), see `KINO-CHANGES.md`.
+- [x] Skeleton: workspace, C ABI, stub (lead) — 698b2da
+- [ ] HLS + server (agent hls): ranged segment fetch done; quality cap (`Source.max_height`) and
+      403 pass-through asked for
+- [x] Engine bridge + smoke (agent engine): search/details/streams/resolve verified live (LOTR,
+      Lanterns S1E1); `kino-smoke --resolve-only` passes
+- [ ] App + CI (agent app): branch `ios-app`, first CI run green (stub mode)
 - [ ] Integration: real engine in the app, CI green end to end (lead)
 - [ ] AltStore install guide for the user; user test on the iPhone
