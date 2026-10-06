@@ -41,15 +41,18 @@ final class ScreensUITests: XCTestCase {
 
         let close = element("close-player")
         try wait(for: close, 60, "The player didn't open")
-        // Let it play a little (a live stream takes longer to start), then look.
-        Thread.sleep(forTimeInterval: engine ? 15 : 8)
+        // Let it play a little, look, and again later (a film may open in the dark).
+        Thread.sleep(forTimeInterval: 7)
         try checkNoAlert()
-        shot("4-player")
+        shot("4-player-7s")
+        Thread.sleep(forTimeInterval: 8)
+        try checkNoAlert()
+        shot("5-player-15s")
         close.tap()
 
         try wait(for: stream, 30, "Didn't come back to the title from the player")
         try checkNoAlert()
-        shot("5-closed")
+        shot("6-closed")
     }
 
     // MARK: Helpers

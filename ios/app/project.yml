@@ -34,9 +34,9 @@ targets:
       # The Rust core, a static library: linked into the app, not embedded.
       - framework: Frameworks/KinoCore.xcframework
         embed: false
-      # The system libraries it needs, as rustc lists them (build-core.sh prints its
-      # "native-static-libs"; libSystem, libc and libm are always linked). CoreFoundation: the
-      # engine's time zone lookup (iana-time-zone).
+      # The system libraries it needs, as rustc lists them (build-core.sh prints them; with the
+      # engine: "native-static-libs: -framework CoreFoundation -liconv -lSystem -lc -lm"). libSystem,
+      # libc and libm are always linked; CoreFoundation is for the engine's time zone lookup.
       - sdk: libiconv.tbd
       - sdk: CoreFoundation.framework
     info:

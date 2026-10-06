@@ -81,7 +81,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ios
-          key: ${{ env.KINO_CORE }}
+          # Both iOS targets' dependencies, per core ("core-" keeps it apart from other jobs' keys).
+          key: core-${{ env.KINO_CORE }}
           cache-on-failure: true
 
       - name: Build the core for iOS (${{ env.KINO_CORE }})
