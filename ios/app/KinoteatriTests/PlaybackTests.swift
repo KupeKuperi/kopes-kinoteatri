@@ -5,7 +5,7 @@
 
 import AVFoundation
 import AVKit
-import CoreImage
+import VideoToolbox
 import XCTest
 @testable import Kinoteatri
 
@@ -152,7 +152,7 @@ final class PlaybackTests: XCTestCase {
     @MainActor
     private func present(_ player: AVPlayer) -> AVPlayerViewController? {
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        guard let root = (windows.first { $0.isKeyWindow } ?? windows.first)?.rootViewController else {
+        guard let root = (windows.first(where: \.isKeyWindow) ?? windows.first)?.rootViewController else {
             note("no window to show the player in")
             return nil
         }
@@ -163,16 +163,17 @@ final class PlaybackTests: XCTestCase {
         return controller
     }
 
-    /// The frame on screen now, decoded by the player.
+    /// The frame on screen now, decoded by the player. (VideoToolbox, not Core Image: a CIContext
+    /// takes ~25 s to set up on CI's virtual Macs.)
     @MainActor
     private func grabFrame(_ output: AVPlayerItemVideoOutput) async -> UIImage? {
-        let context = CIContext()
         for _ in 0..<20 {
             let time = output.itemTime(forHostTime: CACurrentMediaTime())
             if let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) {
-                let image = CIImage(cvPixelBuffer: buffer)
-                if let cgImage = context.createCGImage(image, from: image.extent) {
-                    return UIImage(cgImage: cgImage)
+                var image: CGImage?
+                VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+                if let image {
+                    return UIImage(cgImage: image)
                 }
             }
             try? await Task.sleep(nanoseconds: 200_000_000)

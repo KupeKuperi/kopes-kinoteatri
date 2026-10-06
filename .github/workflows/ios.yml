@@ -29,10 +29,6 @@ env:
   KINO_CORE: ${{ inputs.core || 'stub' }}
   CARGO_TERM_COLOR: always
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
   core:
     name: Core tests (Linux)
@@ -40,6 +36,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
+        shell: bash
         working-directory: ios
     steps:
       - uses: actions/checkout@v5
@@ -61,9 +58,34 @@ jobs:
     timeout-minutes: 60
     defaults:
       run:
+        # Named explicitly so steps run with -o pipefail (xcodebuild | xcbeautify).
+        shell: bash
         working-directory: ios/app
     steps:
       - uses: actions/checkout@v5
+
+      # A simulator's first boot takes minutes on these Macs: it runs while the core and the app
+      # build.
+      - name: Boot an iPhone simulator (in the background)
+        id: sim
+        run: |
+          xcrun simctl list runtimes
+          # The newest iOS runtime's iPhones; the last one listed.
+          pick=$(xcrun simctl list devices available -j | jq -r '
+            [ .devices | to_entries[] | select(.key | test("[.]iOS-[0-9]")) | .key as $rt
+              | .value[] | select(.name | startswith("iPhone"))
+              | {udid, name, rt: ($rt | split(".") | last), v: ($rt | [scan("[0-9]+")] | map(tonumber))} ]
+            | sort_by(.v) | last // empty | [.udid, .name, .rt] | join("|")')
+          if [ -z "$pick" ]; then
+            xcrun simctl list devices available
+            echo "::error::No iPhone simulator available"
+            exit 1
+          fi
+          IFS='|' read -r udid name runtime <<< "$pick"
+          echo "Simulator: $name, $runtime ($udid)"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          nohup xcrun simctl boot "$udid" > "$RUNNER_TEMP/simulator-boot.log" 2>&1 &
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
@@ -88,77 +110,19 @@ jobs:
           xcodegen generate
           xcodebuild -version
 
-      - name: Start an iPhone simulator
-        id: sim
-        run: |
-          # The newest iOS runtime's iPhones; the last one listed.
-          pick=$(xcrun simctl list devices available -j | jq -r '
-            [ .devices | to_entries[] | select(.key | test("[.]iOS-[0-9]")) | .key as $rt
-              | .value[] | select(.name | startswith("iPhone"))
-              | {udid, name, rt: ($rt | split(".") | last), v: ($rt | [scan("[0-9]+")] | map(tonumber))} ]
-            | sort_by(.v) | last // empty | [.udid, .name, .rt] | join("|")')
-          if [ -z "$pick" ]; then
-            xcrun simctl list devices available
-            echo "::error::No iPhone simulator available"
-            exit 1
-          fi
-          IFS='|' read -r udid name runtime <<< "$pick"
-          echo "Simulator: $name, $runtime ($udid)"
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-          xcrun simctl boot "$udid" || true
-          xcrun simctl bootstatus "$udid" -b
-
-      - name: Tests in the Simulator
-        id: tests
-        env:
-          UDID: ${{ steps.sim.outputs.udid }}
+      - name: Build the app and its tests for the Simulator
+        id: build
         run: |
           mkdir -p build
           if command -v xcbeautify > /dev/null; then fmt="xcbeautify --renderer github-actions"; else fmt=cat; fi
-          # A video of the Simulator's screen while the tests run (best effort).
-          xcrun simctl io "$UDID" recordVideo --codec=h264 --force build/simulator.mp4 > build/recording.log 2>&1 &
-          recorder=$!
-          status=0
-          xcodebuild test \
+          xcodebuild build-for-testing \
             -project Kinoteatri.xcodeproj -scheme Kinoteatri \
-            -destination "platform=iOS Simulator,id=$UDID" \
+            -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/dd \
-            -resultBundlePath build/KinoteatriTests.xcresult \
-            -parallel-testing-enabled NO \
-            2>&1 | tee build/xcodebuild-test.log | $fmt || status=$?
-          # Ctrl-C finishes the recording's file.
-          kill -INT "$recorder" 2> /dev/null || true
-          for _ in $(seq 1 15); do kill -0 "$recorder" 2> /dev/null || break; sleep 1; done
-          kill -9 "$recorder" 2> /dev/null || true
-          grep -h "\[kino\]" build/xcodebuild-test.log || true
-          exit "$status"
-
-      - name: Export the test attachments
-        if: always() && steps.tests.outcome != 'skipped'
-        run: |
-          [ -d build/KinoteatriTests.xcresult ] || exit 0
-          out=build/attachments
-          xcrun xcresulttool export attachments --path build/KinoteatriTests.xcresult --output-path "$out" || exit 0
-          # Human names (the export names files by UUID).
-          jq -r '.[].attachments[] | [.exportedFileName, .suggestedHumanReadableName] | join("|")' "$out/manifest.json" 2> /dev/null |
-            while IFS='|' read -r file name; do [ -n "$name" ] && cp "$out/$file" "$out/$name"; done || true
-          ls -la "$out"
-          for f in "$out"/summary*; do [ -f "$f" ] && { echo "== $f"; cat "$f"; echo; }; done
-
-      - name: Keep the test results
-        if: always() && steps.tests.outcome != 'skipped'
-        uses: actions/upload-artifact@v7
-        with:
-          name: ios-tests-${{ env.KINO_CORE }}
-          path: |
-            ios/app/build/attachments/
-            ios/app/build/simulator.mp4
-            ios/app/build/*.log
-            ios/app/build/KinoteatriTests.xcresult/
-          if-no-files-found: ignore
-          retention-days: 7
+            2>&1 | tee build/xcodebuild-build.log | $fmt
 
       - name: Unsigned device build (.ipa)
+        id: device
         if: ${{ !cancelled() && steps.project.outcome == 'success' }}
         run: |
           if command -v xcbeautify > /dev/null; then fmt="xcbeautify --renderer github-actions"; else fmt=cat; fi
@@ -175,9 +139,73 @@ jobs:
           ls -l build/Kinoteatri.ipa
           du -sh build/ipa/Payload/Kinoteatri.app
 
+      - name: Wait for the simulator
+        id: boot
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          cat "$RUNNER_TEMP/simulator-boot.log" || true
+          if ! xcrun simctl bootstatus "$UDID" -b > "$RUNNER_TEMP/bootstatus.log" 2>&1; then
+            tail -n 30 "$RUNNER_TEMP/bootstatus.log"
+            exit 1
+          fi
+          tail -n 3 "$RUNNER_TEMP/bootstatus.log"
+
+      - name: Tests in the Simulator
+        id: tests
+        if: ${{ !cancelled() && steps.boot.outcome == 'success' }}
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          if command -v xcbeautify > /dev/null; then fmt="xcbeautify --renderer github-actions"; else fmt=cat; fi
+          rm -rf build/KinoteatriTests.xcresult
+          # A video of the Simulator's screen while the tests run (best effort).
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force build/simulator.mp4 > build/recording.log 2>&1 &
+          recorder=$!
+          status=0
+          xcodebuild test-without-building \
+            -project Kinoteatri.xcodeproj -scheme Kinoteatri \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath build/dd \
+            -resultBundlePath build/KinoteatriTests.xcresult \
+            -parallel-testing-enabled NO \
+            2>&1 | tee build/xcodebuild-test.log | $fmt || status=$?
+          # Ctrl-C finishes the recording's file.
+          kill -INT "$recorder" 2> /dev/null || true
+          for _ in $(seq 1 15); do kill -0 "$recorder" 2> /dev/null || break; sleep 1; done
+          kill -9 "$recorder" 2> /dev/null || true
+          grep -h "\[kino\]" build/xcodebuild-test.log || true
+          exit "$status"
+
+      - name: Export the test attachments
+        if: ${{ always() && steps.tests.outcome != 'skipped' }}
+        run: |
+          [ -d build/KinoteatriTests.xcresult ] || exit 0
+          out=build/attachments
+          xcrun xcresulttool export attachments --path build/KinoteatriTests.xcresult --output-path "$out" || exit 0
+          # Human names (the export names files by UUID).
+          jq -r '.[].attachments[] | [.exportedFileName, .suggestedHumanReadableName] | join("|")' "$out/manifest.json" 2> /dev/null |
+            while IFS='|' read -r file name; do [ -n "$name" ] && mv "$out/$file" "$out/$name"; done || true
+          ls -la "$out"
+          for f in "$out"/summary*; do [ -f "$f" ] && { echo "== $f"; cat "$f"; echo; }; done
+
+      - name: Keep the test results
+        if: ${{ always() && steps.project.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-tests-${{ env.KINO_CORE }}
+          path: |
+            ios/app/build/attachments/
+            ios/app/build/simulator.mp4
+            ios/app/build/*.log
+            ios/app/build/KinoteatriTests.xcresult/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Password-protect the .ipa
         id: ipa
-        if: steps.tests.outcome == 'success'
+        if: steps.tests.outcome == 'success' && steps.device.outcome == 'success'
         env:
           IPA_PASSWORD: ${{ secrets.IPA_PASSWORD }}
         run: |
@@ -206,6 +234,7 @@ jobs:
     continue-on-error: true
     defaults:
       run:
+        shell: bash
         working-directory: ios
     steps:
       - if: env.KINO_CORE != 'engine'

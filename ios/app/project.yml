@@ -34,6 +34,9 @@ targets:
       # The Rust core, a static library: linked into the app, not embedded.
       - framework: Frameworks/KinoCore.xcframework
         embed: false
+      # The system libraries it needs, as rustc lists them (build-core.sh prints
+      # "native-static-libs: -liconv -lSystem -lc -lm"; libSystem, libc and libm are always linked).
+      - sdk: libiconv.tbd
     info:
       path: Kinoteatri/Info.plist
       properties:
