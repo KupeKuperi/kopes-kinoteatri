@@ -1,5 +1,6 @@
-# Builds the Windows installer and attaches it to a GitHub release.
-# Runs when a version tag (v1.2.3) is pushed; can also be started by hand from the Actions tab.
+# Builds the installers and attaches them to a GitHub release: Setup.exe for Windows, a .dmg each
+# for Apple Silicon and Intel Macs. A version tag (v1.2.3) builds and publishes; "Run workflow" in
+# the Actions tab only builds and tests (the files stay with the run, as artifacts).
 name: Release
 
 on:
@@ -25,19 +26,69 @@ jobs:
       - run: npm run typecheck
       - run: npm run dist
 
+      - name: Keep the installer with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/KopesKinoteatri-Setup-*.exe
+
       - name: Publish the installer
+        if: github.ref_type == 'tag'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          tag="$GITHUB_REF_NAME"
-          [[ "$GITHUB_REF_TYPE" == tag ]] || tag="v$version"
           setup="dist/KopesKinoteatri-Setup-$version.exe"
           # A fixed name too, so .../releases/latest/download/KopesKinoteatri-Setup.exe always works.
           cp "$setup" dist/KopesKinoteatri-Setup.exe
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "Kope's Kinoteatri $version" \
-              --notes "Download **KopesKinoteatri-Setup.exe** below and run it. Windows may warn that the installer isn't signed: More info → Run anyway."
-          fi
-          gh release upload "$tag" "$setup" dist/KopesKinoteatri-Setup.exe --clobber
+          bash scripts/ensure-release.sh "$GITHUB_REF_NAME" "$version"
+          gh release upload "$GITHUB_REF_NAME" "$setup" dist/KopesKinoteatri-Setup.exe --clobber
+
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+
+      - name: Add the Intel build of the terminal library (npm installs only this Mac's own)
+        run: npm install --no-save --force "@lydell/node-pty-darwin-x64@$(node -p "require('@lydell/node-pty/package.json').version")"
+
+      - run: npm run dist:mac
+
+      - name: First run on a clean Mac (install the engine, Discover, search, open a title)
+        run: bash probe/ci/mac-first-run.sh
+
+      - name: Keep the screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-first-run
+          path: probe/out/ci
+
+      - name: Keep the disk images with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-disk-images
+          path: dist/*.dmg
+
+      - name: Publish the disk images
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          # Fixed names too, for links that always give the newest version.
+          cp "dist/KopesKinoteatri-$version-mac-arm64.dmg" dist/KopesKinoteatri-mac-apple-silicon.dmg
+          cp "dist/KopesKinoteatri-$version-mac-x64.dmg" dist/KopesKinoteatri-mac-intel.dmg
+          bash scripts/ensure-release.sh "$GITHUB_REF_NAME" "$version"
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            dist/KopesKinoteatri-mac-apple-silicon.dmg dist/KopesKinoteatri-mac-intel.dmg \
+            "dist/KopesKinoteatri-$version-mac-arm64.dmg" "dist/KopesKinoteatri-$version-mac-x64.dmg"

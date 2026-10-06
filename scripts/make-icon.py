@@ -1,7 +1,8 @@
 """Draws the app icon: a velvet tile ringed with marquee bulbs around a bold K.
 
-Writes build/icon.png (512 px) and build/icon.ico (16-256 px, each size drawn
-on its own so small sizes stay legible). Run: python scripts/make-icon.py
+Writes build/icon.png (512 px), build/icon.ico (16-256 px, each size drawn on
+its own so small sizes stay legible) and build/icon-mac.png (1024 px on Apple's
+icon grid: the tile at 824 px with a soft shadow). Run: python scripts/make-icon.py
 """
 from pathlib import Path
 
@@ -110,13 +111,27 @@ def draw(size: int) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
+def draw_mac() -> Image.Image:
+    """macOS icon: Apple's grid puts the body at 824 of 1024 px, with a soft drop shadow."""
+    canvas, body = 1024, 824
+    tile = draw(body)
+    alpha = tile.getchannel("A")
+    shadow = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    offset = ((canvas - body) // 2, (canvas - body) // 2 + 12)
+    shadow.paste((0, 0, 0, 150), offset, alpha)
+    img = shadow.filter(ImageFilter.GaussianBlur(18))
+    img.alpha_composite(tile, ((canvas - body) // 2, (canvas - body) // 2))
+    return img
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     draw(512).save(OUT / "icon.png")
+    draw_mac().save(OUT / "icon-mac.png")
     sizes = [256, 128, 64, 48, 32, 24, 16]
     frames = [draw(n) for n in sizes]
     frames[0].save(OUT / "icon.ico", format="ICO", sizes=[(n, n) for n in sizes], append_images=frames[1:])
-    print("wrote", OUT / "icon.png", "and", OUT / "icon.ico")
+    print("wrote", OUT / "icon.png", OUT / "icon.ico", "and", OUT / "icon-mac.png")
 
 
 if __name__ == "__main__":

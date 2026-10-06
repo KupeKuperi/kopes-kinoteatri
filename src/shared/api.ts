@@ -36,7 +36,8 @@ export interface MbApi {
   /** Installs moviebox-tui (official release) and starts it. */
   installEngine(): Promise<{ status: EngineStatus; env: EnvironmentInfo }>;
   /** Installs VLC or yt-dlp with winget; returns what is installed now. */
-  installTool(tool: 'vlc' | 'yt-dlp'): Promise<EnvironmentInfo>;
+  /** `manual`: there was no package manager, so the tool's download page opened instead. */
+  installTool(tool: 'vlc' | 'yt-dlp'): Promise<{ env: EnvironmentInfo; manual?: string }>;
   /** Answers the engine's subtitle question: option index, or -1 to cancel. */
   chooseSubtitle(index: number): Promise<void>;
 

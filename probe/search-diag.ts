@@ -7,7 +7,7 @@ import { readTuiConfigRaw, setActiveMode } from '../src/main/data/config';
 import { Driver } from '../src/main/engine/driver';
 import { classify, parseInput } from '../src/main/engine/screen';
 import { EngineSession } from '../src/main/engine/session';
-import { dataDir } from '../src/main/paths';
+import { cacheDir } from '../src/main/paths';
 
 const QUERIES = (process.env.QUERIES ?? 'Breaking Bad|the boys|Spider-Man: No Way Home|squid game 2|one piece').split('|');
 
@@ -18,7 +18,7 @@ const main = async () => {
   const session = new EngineSession(bin.path);
   const t0 = Date.now();
   session.trace = (l) => console.log(`  [${String(Date.now() - t0).padStart(6)}] ${l}`);
-  const driver = new Driver(session, new CacheIndex(dataDir()));
+  const driver = new Driver(session, new CacheIndex(cacheDir()));
   session.start();
   await session.waitFor('start', (s) => classify(s) !== 'unknown', 20000);
   try {

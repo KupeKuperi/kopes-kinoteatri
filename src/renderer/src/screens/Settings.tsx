@@ -137,7 +137,7 @@ export function Settings() {
                 </button>
               ))}
             </div>
-            {!env?.players.vlc && window.mb.platform === 'win32' && (
+            {!env?.players.vlc && (
               <div className="mt-3 flex items-center gap-3 text-[12.5px] text-usher">
                 <InstallToolButton tool="vlc" /> VLC isn't installed. The engine plays through it (or mpv).
               </div>

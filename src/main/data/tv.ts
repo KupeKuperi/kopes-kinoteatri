@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { TvChannel, TvPlaylist, TvView } from '@shared/types';
-import { configFile, dataDir, expandHome } from '../paths';
+import { cacheDir, configFile, expandHome } from '../paths';
 
 const MAX_BYTES = 15 * 1024 * 1024; // the TUI rejects larger playlists too
 
@@ -97,4 +97,4 @@ export async function readTv(force = false): Promise<TvView> {
 }
 
 /** Folder the TUI keeps downloaded playlists in (shown in diagnostics). */
-export const tvCacheDir = () => path.join(dataDir(), 'tv_playlists');
+export const tvCacheDir = () => path.join(cacheDir(), 'tv_playlists');

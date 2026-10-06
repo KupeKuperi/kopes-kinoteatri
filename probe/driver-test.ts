@@ -7,7 +7,7 @@ import { readTuiConfigRaw, setActiveMode } from '../src/main/data/config';
 import { Driver } from '../src/main/engine/driver';
 import { classify } from '../src/main/engine/screen';
 import { EngineSession } from '../src/main/engine/session';
-import { configFile, dataDir } from '../src/main/paths';
+import { cacheDir, configFile } from '../src/main/paths';
 
 const step = process.argv[2] ?? 'all';
 const log = (label: string, v: unknown) => console.log(`\n=== ${label}\n${typeof v === 'string' ? v : JSON.stringify(v, null, 1)}`);
@@ -19,7 +19,7 @@ const main = async () => {
   if (!bin) process.exit(1);
   const mode = readTuiConfigRaw()?.active_mode as string;
   const session = new EngineSession(bin.path);
-  const driver = new Driver(session, new CacheIndex(dataDir()));
+  const driver = new Driver(session, new CacheIndex(cacheDir()));
   driver.on('activity', (a) => a && console.log(`  … ${a}`));
   driver.on('results', (v) => console.log(`  (enriched: ${v.items.filter((i: any) => i.rating).length} ratings)`));
   session.start();

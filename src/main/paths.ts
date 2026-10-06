@@ -1,32 +1,40 @@
-// Where moviebox-tui keeps its files. Windows paths are verified against a real
-// install; macOS/Linux follow the `dirs` crate conventions the TUI is built on.
-import fs from 'node:fs';
+// Where moviebox-tui keeps its files, by its own rules (src/config.rs, built on the `dirs` crate):
+//
+//              Windows                    macOS                                Linux
+//   config     %APPDATA%\moviebox-tui     ~/Library/Application Support/…      $XDG_CONFIG_HOME or ~/.config/…
+//   data       %APPDATA%\moviebox-tui     ~/Library/Application Support/…      $XDG_DATA_HOME or ~/.local/share/…
+//   cache      %LOCALAPPDATA%\moviebox-tui ~/Library/Caches/…                  $XDG_CACHE_HOME or ~/.cache/…
+//   logs       %LOCALAPPDATA%\…\logs      <data>/logs                          <data>/logs
+//
+// Its MOVIEBOX_CONFIG_DIR / _DATA_DIR / _CACHE_DIR overrides (full folders) are honoured too.
 import os from 'node:os';
 import path from 'node:path';
 
 const APP = 'moviebox-tui';
 const home = os.homedir();
+const isWindows = process.platform === 'win32';
+const isMac = process.platform === 'darwin';
+const env = (name: string) => process.env[name]?.trim() || undefined;
+const roaming = () => env('APPDATA') ?? path.join(home, 'AppData', 'Roaming');
+const localAppData = () => env('LOCALAPPDATA') ?? path.join(home, 'AppData', 'Local');
+const macSupport = () => path.join(home, 'Library', 'Application Support');
 
-function firstExisting(candidates: string[]): string {
-  return candidates.find((p) => fs.existsSync(p)) ?? candidates[0];
-}
+/** config.json, addons_config.json, tv_config.json */
+export const configDir = (): string =>
+  env('MOVIEBOX_CONFIG_DIR') ?? path.join(isWindows ? roaming() : isMac ? macSupport() : (env('XDG_CONFIG_HOME') ?? path.join(home, '.config')), APP);
 
-/** config.json, history.json, favorites.json, tv_config.json */
-export const configDir = (): string => {
-  if (process.platform === 'win32') return path.join(process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), APP);
-  if (process.platform === 'darwin') return firstExisting([path.join(home, 'Library', 'Application Support', APP), path.join(home, '.config', APP)]);
-  return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'), APP);
-};
+/** history.json, favorites.json (the config folder too on Windows and macOS). */
+export const tuiDataDir = (): string =>
+  env('MOVIEBOX_DATA_DIR') ??
+  path.join(isWindows ? roaming() : isMac ? macSupport() : (env('XDG_DATA_HOME') ?? path.join(home, '.local', 'share')), APP);
 
-/** Response caches, logs, TV playlists. */
-export const dataDir = (): string => {
-  if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA ?? path.join(home, 'AppData', 'Local'), APP);
-  if (process.platform === 'darwin') return firstExisting([path.join(home, 'Library', 'Caches', APP), path.join(home, 'Library', 'Application Support', APP)]);
-  return firstExisting([
-    path.join(process.env.XDG_CACHE_HOME ?? path.join(home, '.cache'), APP),
-    path.join(process.env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'), APP),
-  ]);
-};
+/** Response caches (search, details, streams, captions, homepage) and downloaded TV playlists. */
+export const cacheDir = (): string =>
+  env('MOVIEBOX_CACHE_DIR') ??
+  path.join(isWindows ? localAppData() : isMac ? path.join(home, 'Library', 'Caches') : (env('XDG_CACHE_HOME') ?? path.join(home, '.cache')), APP);
+
+/** The TUI's logs (moviebox-tui_rCURRENT.log). */
+export const logsDir = (): string => (isWindows ? path.join(localAppData(), APP, 'logs') : path.join(tuiDataDir(), 'logs'));
 
 export const configFile = (name: string): string => path.join(configDir(), name);
 

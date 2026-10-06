@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Download, MonitorPlay } from 'lucide-react';
 import { errorMessage, mb } from '@/lib/api';
+import { isMac, isWindows } from '@/lib/platform';
 import { useStore } from '@/lib/store';
 import { Button } from './ui';
 
@@ -17,13 +18,23 @@ export function InstallToolButton({ tool, children, size = 'sm' }: { tool: 'vlc'
       variant="primary"
       busy={busy}
       icon={<Download size={14} />}
-      title={tool === 'vlc' ? 'Installs VLC with winget. Windows asks for permission.' : 'Installs yt-dlp (and ffmpeg) with winget.'}
+      title={
+        isWindows
+          ? tool === 'vlc'
+            ? 'Installs VLC with winget. Windows asks for permission.'
+            : 'Installs yt-dlp (and ffmpeg) with winget.'
+          : isMac
+            ? `Installs ${name} with Homebrew, or opens its download page.`
+            : `Opens the ${name} download page.`
+      }
       onClick={async () => {
         setBusy(true);
-        toast('info', `Installing ${name}…`, tool === 'vlc' ? 'Windows may ask for permission. This takes a minute.' : 'This takes a minute.');
+        toast('info', `Installing ${name}…`, isWindows && tool === 'vlc' ? 'Windows may ask for permission. This takes a minute.' : 'This takes a minute.');
         try {
-          useStore.setState({ env: await mb.installTool(tool) });
-          toast('success', `${name} is installed`, tool === 'vlc' ? 'Titles now play in VLC.' : 'MovieBox downloads work now.');
+          const r = await mb.installTool(tool);
+          useStore.setState({ env: r.env });
+          if (r.manual) toast('info', `Get ${name} from its website`, `The download page opened in your browser. Install ${name}, then come back.`);
+          else toast('success', `${name} is installed`, tool === 'vlc' ? 'Titles now play in VLC.' : 'MovieBox downloads work now.');
         } catch (e) {
           toast('error', `Couldn't install ${name}`, errorMessage(e));
         } finally {

@@ -1,5 +1,6 @@
 import { Download, Home, Library, Radio, Settings, SquareTerminal } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { keyNames } from '@/lib/platform';
 import { useRoute, useStore, type Section } from '@/lib/store';
 import { Kbd, Spinner } from './ui';
 
@@ -51,7 +52,7 @@ export function Sidebar() {
                   <span className="rounded-full bg-bulb px-1.5 font-mono text-[10px] font-medium text-house">{downloads}</span>
                 )}
                 <span className="opacity-0 transition-opacity group-hover:opacity-100">
-                  <Kbd>Alt {item.key}</Kbd>
+                  <Kbd>{keyNames.section} {item.key}</Kbd>
                 </span>
               </button>
             </li>
@@ -77,7 +78,7 @@ export function Sidebar() {
           <SquareTerminal size={15} className="shrink-0" />
           {consoleOpen ? 'Hide console' : 'Console'}
           <span className="ml-auto">
-            <Kbd>Ctrl+`</Kbd>
+            <Kbd>{keyNames.control}+`</Kbd>
           </span>
         </button>
       </div>

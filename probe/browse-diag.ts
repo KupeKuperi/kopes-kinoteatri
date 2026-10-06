@@ -8,9 +8,9 @@ import { readTuiConfigRaw, setActiveMode } from '../src/main/data/config';
 import { Driver } from '../src/main/engine/driver';
 import { classify, parseInput } from '../src/main/engine/screen';
 import { EngineSession } from '../src/main/engine/session';
-import { dataDir } from '../src/main/paths';
+import { cacheDir } from '../src/main/paths';
 
-const homeDir = path.join(dataDir(), 'moviebox', 'homepage');
+const homeDir = path.join(cacheDir(), 'moviebox', 'homepage');
 const files = () => (fs.existsSync(homeDir) ? fs.readdirSync(homeDir).map((f) => `${f}@${fs.statSync(path.join(homeDir, f)).mtimeMs | 0}`) : []);
 
 const main = async () => {
@@ -18,7 +18,7 @@ const main = async () => {
   if (!bin) throw new Error('no binary');
   const mode = readTuiConfigRaw()?.active_mode as string;
   const session = new EngineSession(bin.path);
-  const driver = new Driver(session, new CacheIndex(dataDir()));
+  const driver = new Driver(session, new CacheIndex(cacheDir()));
   // Log the browse menu's selection line every time the driver presses a key in it.
   session.trace = (l) => {
     const m = /╭ Browse · (\d+)\/(\d+)/.exec(session.screen().text());

@@ -1,13 +1,26 @@
-# Windows installer (Setup.exe) for the app packaged by scripts/package.mjs.
-# Build with `npm run dist`; the installer lands in dist/.
+# Installers. Windows: `npm run dist` wraps the app packaged by scripts/package.mjs in a Setup.exe.
+# macOS: `npm run dist:mac` (on a Mac) packages the app and makes a .dmg for Apple Silicon and Intel.
 appId: com.kupekuperi.kopeskinoteatri
-# File and folder names stay plain ASCII; people see "Kope's Kinoteatri" (shortcuts, Apps & features).
+# File and folder names stay plain ASCII on Windows; people see "Kope's Kinoteatri" (shortcuts,
+# Apps & features). The Mac build passes productName "Kope's Kinoteatri" for its .app.
 productName: KopesKinoteatri
 executableName: KopesKinoteatri
 copyright: Copyright © 2026 KupeKuperi
 directories:
   output: dist
   buildResources: build
+
+# What electron-builder packages itself (the Mac build); production dependencies come along.
+files:
+  - out/**
+  - package.json
+# The terminal library loads native files, OpenConsole.exe / spawn-helper and a worker from disk.
+asarUnpack:
+  - node_modules/@lydell/**
+# The terminal library ships prebuilt binaries for every system: nothing to compile.
+npmRebuild: false
+afterPack: scripts/after-pack.cjs
+
 win:
   target:
     - target: nsis
@@ -28,3 +41,21 @@ nsis:
   artifactName: KopesKinoteatri-Setup-${version}.exe
   # Watch history, favorites and settings belong to the engine and stay on uninstall.
   deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  icon: build/icon-mac.png
+  category: public.app-category.entertainment
+  darkModeSupport: true
+  # No Apple Developer ID: scripts/after-pack.cjs signs the app ad hoc instead, so macOS offers
+  # "Open Anyway" (Privacy & Security) on first launch rather than calling it damaged.
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  extendInfo:
+    CFBundleDisplayName: Kope's Kinoteatri
+dmg:
+  artifactName: KopesKinoteatri-${version}-mac-${arch}.dmg
+  title: Kope's Kinoteatri ${version}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { errorMessage, mb } from '@/lib/api';
 import { isTyping, moveFocus, type Direction } from '@/lib/nav';
+import { isMac } from '@/lib/platform';
 import { useRoute, useStore } from '@/lib/store';
 import { EngineConsole } from '@/components/EngineConsole';
 import { Shortcuts } from '@/components/Shortcuts';
@@ -45,7 +46,7 @@ function EngineMissing() {
         <h1 className="mt-3 font-display text-[44px] font-extrabold uppercase leading-[0.92]">Install the engine</h1>
         <p className="mt-4 text-[14px] leading-relaxed text-usher">
           Kope's Kinoteatri finds and plays titles through moviebox-tui, a free open-source program that isn't on this computer yet. Install
-          its official release from GitHub (about 5 MB, checked against its published checksum), or point to the program if you already have it.
+          its official release from GitHub (a few MB, checked against its published checksum), or point to the program if you already have it.
         </p>
         {error && <p className="mt-4 rounded-lg border border-err/30 bg-err/10 px-3 py-2 text-[13px] text-screen/90">{error}</p>}
         {installing && (
@@ -108,8 +109,9 @@ export function App() {
         st.setConsole(!st.consoleOpen);
         return;
       }
+      // Sections: ⌘1–5 on a Mac (⌥ types characters there), Alt 1–5 elsewhere.
       const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
-      if (e.altKey && digit && SECTION_KEYS[digit]) {
+      if ((isMac ? e.metaKey : e.altKey) && digit && SECTION_KEYS[digit]) {
         e.preventDefault();
         st.go({ name: SECTION_KEYS[digit] });
         return;

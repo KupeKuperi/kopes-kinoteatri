@@ -11,8 +11,8 @@ import { readLibrary } from './data/library';
 import { suggestTitles, type KnownTitle } from './data/suggest';
 import { readPlaylistSources, readTv } from './data/tv';
 import type { EngineManager } from './engine/manager';
-import { configDir, dataDir, defaultDownloadDir, expandHome } from './paths';
-import { installEngine, installWithWinget, WINGET_TOOLS, type WingetTool } from './tools';
+import { cacheDir, configDir, defaultDownloadDir, expandHome } from './paths';
+import { installEngine, installTool, TOOLS, type Tool } from './tools';
 
 export function registerIpc(
   engine: EngineManager,
@@ -28,7 +28,7 @@ export function registerIpc(
     const tui = readTuiSettings();
     return {
       configDir: configDir(),
-      dataDir: dataDir(),
+      dataDir: cacheDir(),
       downloadDir: tui?.downloadDir ? expandHome(tui.downloadDir) : defaultDownloadDir(),
       ytDlp: which('yt-dlp'),
       ffmpeg: which('ffmpeg'),
@@ -48,13 +48,14 @@ export function registerIpc(
     await engine.restart();
     return { status: engine.status, env: env() };
   });
-  // VLC (to play) and yt-dlp (MovieBox downloads) through winget; nothing else can be installed from here.
+  // VLC (to play) and yt-dlp (MovieBox downloads): winget on Windows, Homebrew on a Mac (else their
+  // download page opens). Nothing else can be installed from here.
   handle('tools:install', async (tool: string) => {
-    if (!(tool in WINGET_TOOLS)) throw new Error('Unknown tool.');
-    await installWithWinget(tool as WingetTool);
+    if (!(tool in TOOLS)) throw new Error('Unknown tool.');
+    const r = await installTool(tool as Tool, (url) => shell.openExternal(url));
     // The engine finds yt-dlp on the PATH it started with: restart it so it sees the new one.
-    if (tool === 'yt-dlp' && !engine.downloading) await engine.restart();
-    return env();
+    if (!r.manual && tool === 'yt-dlp' && !engine.downloading) await engine.restart();
+    return { env: env(), manual: r.manual };
   });
   handle('engine:snapshot', () => engine.session?.serialize() ?? '');
   ipcMain.on('engine:input', (_e, data: string) => engine.session?.writeFromConsole(data));

@@ -9,7 +9,7 @@ import { readTuiConfigRaw, setActiveMode } from '../src/main/data/config';
 import { Driver } from '../src/main/engine/driver';
 import { classify } from '../src/main/engine/screen';
 import { EngineSession } from '../src/main/engine/session';
-import { dataDir } from '../src/main/paths';
+import { cacheDir } from '../src/main/paths';
 
 const QUERIES = (process.env.QUERIES ?? 'the office|dune|avatar|naruto').split('|');
 
@@ -17,7 +17,7 @@ const QUERIES = (process.env.QUERIES ?? 'the office|dune|avatar|naruto').split('
 function allCached() {
   const out: Array<{ file: string; title: string; kind: string; year: string; cover: boolean }> = [];
   for (const sub of ['search', 'homepage']) {
-    const dir = path.join(dataDir(), 'moviebox', sub);
+    const dir = path.join(cacheDir(), 'moviebox', sub);
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
       try {
@@ -38,7 +38,7 @@ const main = async () => {
   if (!bin) throw new Error('no binary');
   const mode = readTuiConfigRaw()?.active_mode as string;
   const session = new EngineSession(bin.path);
-  const driver = new Driver(session, new CacheIndex(dataDir()));
+  const driver = new Driver(session, new CacheIndex(cacheDir()));
   session.start();
   await session.waitFor('start', (s) => classify(s) !== 'unknown', 20000);
   try {

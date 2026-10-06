@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, net, shell } from 'electron';
+import { app, BrowserWindow, Menu, net, shell } from 'electron';
 import type { EngineEvent } from '@shared/types';
 import { CacheIndex } from './data/cacheIndex';
 import { readGuiSettings } from './data/config';
@@ -9,7 +9,7 @@ import { readLibrary, watchLibrary } from './data/library';
 import { EngineManager } from './engine/manager';
 import { handleImageScheme, registerImageScheme } from './images';
 import { forwardEvents, registerIpc } from './ipc';
-import { configDir, dataDir } from './paths';
+import { cacheDir, tuiDataDir } from './paths';
 
 const APP_NAME = "Kope's Kinoteatri";
 
@@ -43,7 +43,7 @@ if (!app.requestSingleInstanceLock()) app.exit(0);
 
 let win: BrowserWindow | null = null;
 const userData = app.getPath('userData');
-const engine = new EngineManager(new CacheIndex(dataDir()), () => readGuiSettings(userData));
+const engine = new EngineManager(new CacheIndex(cacheDir()), () => readGuiSettings(userData), path.join(userData, 'engine.pid'));
 // Chromium's network stack (net.fetch) honours the system proxy settings.
 const imdb = new ImdbService(path.join(userData, 'imdb'), (url) => net.fetch(url));
 
@@ -64,6 +64,7 @@ function createWindow() {
     icon: app.isPackaged ? undefined : path.join(__dirname, '../../build/icon.png'),
     titleBarStyle: 'hidden',
     titleBarOverlay: process.platform === 'darwin' ? undefined : { color: '#160D12', symbolColor: '#A8939C', height: 44 },
+    // macOS draws its window buttons over the 44 px title bar; the title bar leaves room for them.
     trafficLightPosition: { x: 16, y: 15 },
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -105,12 +106,17 @@ app.on('second-instance', () => {
 });
 
 app.whenReady().then(() => {
+  // A Mac app needs its menu for ⌘Q, ⌘W and copy/paste in text fields; elsewhere the window has no menu bar.
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
+  }
   handleImageScheme();
   registerIpc(engine, imdb, userData, () => win, (url) => net.fetch(url));
   forwardEvents(engine, send);
-  watchLibrary(configDir(), () => send({ type: 'library', payload: readLibrary() }));
+  watchLibrary(tuiDataDir(), () => send({ type: 'library', payload: readLibrary() }));
   createWindow();
-  void engine.start();
+  // First end an engine a crashed earlier run may have left behind, then start this one.
+  void engine.reapOrphan().finally(() => engine.start());
 });
 
 let quitting = false;

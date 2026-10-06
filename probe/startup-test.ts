@@ -6,7 +6,7 @@ import { CacheIndex } from '../src/main/data/cacheIndex';
 import { Driver } from '../src/main/engine/driver';
 import { classify } from '../src/main/engine/screen';
 import { EngineSession } from '../src/main/engine/session';
-import { dataDir } from '../src/main/paths';
+import { cacheDir } from '../src/main/paths';
 
 const screenOf = (session: EngineSession) =>
   session
@@ -23,7 +23,7 @@ const main = async () => {
   const session = new EngineSession(bin.path);
   const t0 = Date.now();
   session.trace = (line) => console.log(`  [${Date.now() - t0} ms] ${line}`);
-  const driver = new Driver(session, new CacheIndex(dataDir()));
+  const driver = new Driver(session, new CacheIndex(cacheDir()));
   session.start();
   await session.waitFor('start', (s) => classify(s) !== 'unknown', 20000);
   console.log(`first screen: ${classify(session.screen())} after ${Date.now() - t0} ms`);

@@ -79,9 +79,11 @@ export function detectPlayers(paths: { vlc?: string | null; mpv?: string | null;
   };
   const pf = process.env.ProgramFiles ?? 'C:\\Program Files';
   const pf86 = process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)';
+  // Mac apps live in /Applications or ~/Applications (the engine's own installer checks both).
+  const macApp = (bundle: string, exe: string) => ['/Applications', path.join(os.homedir(), 'Applications')].map((d) => path.join(d, bundle, 'Contents', 'MacOS', exe));
   return {
-    vlc: pick(paths.vlc, which('vlc'), path.join(pf, 'VideoLAN', 'VLC', 'vlc.exe'), path.join(pf86, 'VideoLAN', 'VLC', 'vlc.exe'), '/Applications/VLC.app/Contents/MacOS/VLC'),
-    mpv: pick(paths.mpv, which('mpv'), path.join(os.homedir(), 'scoop', 'apps', 'mpv', 'current', 'mpv.exe')),
-    iina: pick(paths.iina, which('iina-cli'), '/Applications/IINA.app/Contents/MacOS/iina-cli'),
+    vlc: pick(paths.vlc, which('vlc'), path.join(pf, 'VideoLAN', 'VLC', 'vlc.exe'), path.join(pf86, 'VideoLAN', 'VLC', 'vlc.exe'), ...macApp('VLC.app', 'VLC')),
+    mpv: pick(paths.mpv, which('mpv'), path.join(os.homedir(), 'scoop', 'apps', 'mpv', 'current', 'mpv.exe'), ...macApp('mpv.app', 'mpv')),
+    iina: pick(paths.iina, which('iina-cli'), which('iina'), ...macApp('IINA.app', 'iina-cli')),
   };
 }

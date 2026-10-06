@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, History, Search } from 'lucide-react';
 import type { ResultItem, ResultsView, Suggestion } from '@shared/types';
 import { imageUrl, mb } from '@/lib/api';
+import { isMac, keyNames } from '@/lib/platform';
 import { useStore } from '@/lib/store';
 import { Kbd, Spinner } from './ui';
 
@@ -45,7 +46,6 @@ export function TitleBar() {
   const [liveLoading, setLiveLoading] = useState(false);
   const [menu, setMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const isMac = window.mb.platform === 'darwin';
 
   // Posters and ratings for live results arrive a moment after the list itself.
   useEffect(
@@ -154,7 +154,8 @@ export function TitleBar() {
   };
 
   return (
-    <header className={`drag flex h-11 shrink-0 items-center gap-4 border-b border-seam/60 bg-house ${isMac ? 'pl-24' : 'pl-5'} pr-[150px]`}>
+    // macOS draws its window buttons at the left of this bar, Windows its caption buttons at the right.
+    <header className={`drag flex h-11 shrink-0 items-center gap-4 border-b border-seam/60 bg-house ${isMac ? 'pl-24 pr-5' : 'pl-5 pr-[150px]'}`}>
       <div className="w-[176px] shrink-0 whitespace-nowrap font-display text-[17px] font-extrabold uppercase leading-none tracking-[0.08em]">
         Kope's <span className="text-bulb">Kinoteatri</span>
       </div>
@@ -184,7 +185,7 @@ export function TitleBar() {
             aria-activedescendant={open ? `suggestion-${active}` : undefined}
             className="h-full min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-dim"
           />
-          {liveLoading ? <Spinner /> : <Kbd>Ctrl K</Kbd>}
+          {liveLoading ? <Spinner /> : <Kbd>{keyNames.command} K</Kbd>}
         </form>
 
         {open && (

@@ -1,7 +1,9 @@
 // Owns the engine lifecycle: finds the binary, keeps one hidden TUI session
 // alive, and turns what the TUI draws (toasts, download panel, spinners) into
 // events for the GUI.
+import { execFile } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
 import type { ActiveDownload, EngineStatus, GuiSettings, Toast } from '@shared/types';
 import { detectBinary } from '../binary';
 import type { CacheIndex } from '../data/cacheIndex';
@@ -9,6 +11,15 @@ import { readTuiConfigRaw, setActiveMode } from '../data/config';
 import { Driver } from './driver';
 import { classify, parseDownloadPanel, parseInput, parseToasts, providerFromLabel, spinnerText } from './screen';
 import { EngineSession } from './session';
+
+/** Is `pid` a running moviebox-tui? (Process ids are reused, so the name must match too.) */
+function isEngineProcess(pid: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const done = (err: Error | null, out: string) => resolve(!err && /moviebox-tui/i.test(out));
+    if (process.platform === 'win32') execFile('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], { windowsHide: true, timeout: 5000 }, (e, o) => done(e, o));
+    else execFile('ps', ['-p', String(pid), '-o', 'comm='], { timeout: 5000 }, (e, o) => done(e, o));
+  });
+}
 
 export class EngineManager extends EventEmitter {
   session: EngineSession | null = null;
@@ -33,8 +44,41 @@ export class EngineManager extends EventEmitter {
     readonly cache: CacheIndex,
     /** The GUI's own settings (engine location, subtitle choice), read when needed. */
     private readonly gui: () => GuiSettings,
+    /** Notes the running engine's process id, so an engine this app couldn't stop is ended next start. */
+    private readonly pidFile: string | null = null,
   ) {
     super();
+  }
+
+  private notePid(pid: number | null) {
+    if (!this.pidFile) return;
+    try {
+      if (pid) fs.writeFileSync(this.pidFile, JSON.stringify({ pid }));
+      else fs.rmSync(this.pidFile, { force: true });
+    } catch {
+      /* only a safety net */
+    }
+  }
+
+  /**
+   * Ends an engine that a previous run of this app left running: it crashed or was killed before it
+   * could stop its engine (normally quitting stops it). Only a moviebox-tui process with the noted id.
+   */
+  async reapOrphan(): Promise<void> {
+    if (!this.pidFile) return;
+    let pid = 0;
+    try {
+      pid = Number(JSON.parse(fs.readFileSync(this.pidFile, 'utf8')).pid) || 0;
+    } catch {
+      return; // the last run stopped its engine
+    }
+    this.notePid(null);
+    if (!pid || !(await isEngineProcess(pid))) return;
+    try {
+      process.kill(pid);
+    } catch {
+      /* gone meanwhile */
+    }
   }
 
   private setStatus(patch: Partial<EngineStatus>) {
@@ -95,6 +139,7 @@ export class EngineManager extends EventEmitter {
     session.on('render', () => this.session === session && this.scheduleMonitor());
     session.on('exit', ({ exitCode, expected }: { exitCode: number; expected: boolean }) => {
       if (this.session !== session) return;
+      this.notePid(null);
       this.session = null;
       if (expected) return this.setStatus({ state: 'stopped', activity: null });
       const now = Date.now();
@@ -115,6 +160,8 @@ export class EngineManager extends EventEmitter {
     session.start();
     try {
       await session.waitFor('the engine to start', (s) => classify(s) !== 'unknown', 20000);
+      // Its process id is known once it runs (the Windows pseudo-terminal reports it late).
+      this.notePid(session.pid);
       // Right after its first frame the TUI blanks the screen for ~0.4 s to show its size ("110 × 80").
       await session.idle(250, 2500);
       await session.waitFor('the engine to start', (s) => classify(s) !== 'unknown', 5000);
@@ -133,6 +180,7 @@ export class EngineManager extends EventEmitter {
     const session = this.session;
     this.session = null;
     await session?.stop();
+    if (session) this.notePid(null);
     this.setStatus({ state: 'stopped', activity: null, tuiStatus: null });
   }
 

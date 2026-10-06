@@ -21,7 +21,7 @@ import type {
 } from '@shared/types';
 import { providerId, type CacheIndex } from '../data/cacheIndex';
 import { fixMojibake } from '../data/mbc';
-import { dataDir } from '../paths';
+import { logsDir } from '../paths';
 import type { EngineSession } from './session';
 import {
   classify,
@@ -41,7 +41,7 @@ import {
 } from './screen';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const TUI_LOG = () => path.join(dataDir(), 'logs', 'moviebox-tui_rCURRENT.log');
+const TUI_LOG = () => path.join(logsDir(), 'moviebox-tui_rCURRENT.log');
 
 /**
  * Resolution from the release name when it states one: the engine labels some

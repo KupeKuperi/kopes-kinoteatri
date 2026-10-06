@@ -1,14 +1,15 @@
+import { keyNames } from '@/lib/platform';
 import { useStore } from '@/lib/store';
 import { Kbd } from './ui';
 
 const GROUPS: Array<[string, Array<[string, string]>]> = [
   ['Anywhere', [
-    ['Ctrl K  /', 'Search'],
+    [`${keyNames.command} K  /`, 'Search'],
     ['← ↑ → ↓', 'Move between items'],
     ['Enter', 'Open or activate'],
     ['Esc', 'Go back'],
-    ['Alt 1 – 5', 'Home, Library, Downloads, Live TV, Settings'],
-    ['Ctrl `', 'Show or hide the engine console'],
+    [`${keyNames.section} 1 – 5`, 'Home, Library, Downloads, Live TV, Settings'],
+    [`${keyNames.control} \``, 'Show or hide the engine console'],
     ['?', 'This list'],
   ]],
   ['On a title', [

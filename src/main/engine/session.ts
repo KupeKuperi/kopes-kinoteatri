@@ -47,6 +47,11 @@ export class EngineSession extends EventEmitter {
     super();
   }
 
+  /** Process id of the running TUI. */
+  get pid(): number | null {
+    return this.pty?.pid ?? null;
+  }
+
   get running(): boolean {
     return this.pty !== null;
   }

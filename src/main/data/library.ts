@@ -1,8 +1,9 @@
 // History, continue-watching and favorites, read from the JSON files the TUI
 // maintains. The TUI is the only writer; the GUI watches for changes.
 import fs from 'node:fs';
+import path from 'node:path';
 import type { FavoriteEntry, HistoryEntry, LibrarySnapshot } from '@shared/types';
-import { configFile } from '../paths';
+import { tuiDataDir } from '../paths';
 
 type Raw = Record<string, unknown>;
 
@@ -19,7 +20,7 @@ const kindOf = (r: Raw): HistoryEntry['kind'] => {
 
 function readJson(name: string): unknown {
   try {
-    return JSON.parse(fs.readFileSync(configFile(name), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(tuiDataDir(), name), 'utf8'));
   } catch {
     return null;
   }
@@ -96,14 +97,23 @@ export function readLibrary(): LibrarySnapshot {
 export function watchLibrary(dir: string, onChange: () => void): () => void {
   let timer: NodeJS.Timeout | null = null;
   let watcher: fs.FSWatcher | null = null;
-  try {
-    watcher = fs.watch(dir, (_event, file) => {
-      if (file && !/^(history|favorites)\.json$/.test(String(file))) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(onChange, 250);
-    });
-  } catch {
-    /* directory missing until the TUI first runs */
-  }
-  return () => watcher?.close();
+  let retry: NodeJS.Timeout | null = null;
+  const start = () => {
+    try {
+      watcher = fs.watch(dir, (_event, file) => {
+        if (file && !/^(history|favorites)\.json$/.test(String(file))) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(onChange, 250);
+      });
+      onChange();
+    } catch {
+      // On a new computer the folder appears once the engine first runs: look again shortly.
+      retry = setTimeout(start, 5000);
+    }
+  };
+  start();
+  return () => {
+    if (retry) clearTimeout(retry);
+    watcher?.close();
+  };
 }
