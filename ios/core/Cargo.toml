@@ -1,0 +1,35 @@
+[package]
+name = "kino-core"
+version = "0.1.0"
+edition = "2024"
+description = "Kope's Kinoteatri for iPhone: the moviebox-tui engine behind a C ABI, with a local stream server for AVPlayer."
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "kino_core"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "kino-smoke"
+path = "src/bin/kino-smoke.rs"
+required-features = ["engine"]
+
+[features]
+default = ["engine"]
+# Without it the core is a stub: canned titles, Apple's public HLS test stream (see GUIDE.md).
+engine = ["dep:moviebox-tui"]
+
+[dependencies]
+moviebox-tui = { path = "../engine", optional = true }
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots", "stream"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+futures = "0.3"
+rand = "0.10"
+log = "0.4"

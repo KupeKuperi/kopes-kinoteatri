@@ -1,0 +1,12 @@
+# Kope's Kinoteatri for iPhone: the Rust side (see GUIDE.md). The engine (moviebox-tui) is a path
+# dependency of kino-core, not a member, so its own binary isn't built.
+[workspace]
+members = ["core"]
+resolver = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+# kino_call catches panics at the C boundary, which needs unwinding.
+panic = "unwind"

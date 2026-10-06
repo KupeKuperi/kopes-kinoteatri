@@ -5,3 +5,9 @@ dist-next/
 probe/out/
 *.log
 *.tsbuildinfo
+
+# iPhone app (ios/)
+ios/target/
+ios/app/*.xcodeproj/
+ios/app/build/
+ios/app/Frameworks/
