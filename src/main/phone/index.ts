@@ -32,18 +32,22 @@ export function setupPhone(opts: {
 }): Phone {
   const { engine, userData, handle } = opts;
 
+  // Read once (every video request checks the key), written through on change.
+  let current: PhoneSettings | null = null;
   const settings = (): PhoneSettings => {
+    if (current) return current;
     const gui = readGuiSettings(userData);
     const phone = { enabled: false, port: DEFAULT_PORT, key: '', ...gui.phone };
     if (!phone.key) {
       phone.key = crypto.randomBytes(18).toString('base64url');
       writeGuiSettings(userData, { ...gui, phone });
     }
-    return phone;
+    return (current = phone);
   };
   const save = (patch: Partial<PhoneSettings>) => {
-    const gui = readGuiSettings(userData);
-    writeGuiSettings(userData, { ...gui, phone: { ...settings(), ...patch } });
+    const phone = { ...settings(), ...patch };
+    writeGuiSettings(userData, { ...readGuiSettings(userData), phone });
+    current = phone;
   };
 
   const relay = new Relay();
@@ -95,10 +99,14 @@ export function setupPhone(opts: {
     const sub = readGuiSettings(userData).subtitles;
     const ticket = relay.expect(device, title, live, sub && sub !== 'ask' && sub !== 'off' ? sub : undefined);
     try {
-      return await play();
-    } finally {
+      const result = await play();
       // The launch arrives right after the engine starts its player; after that, stop waiting.
       setTimeout(() => relay.cancelExpect(ticket), 20_000);
+      return result;
+    } catch (e) {
+      // No launch is coming: the computer's next play must not go to the phone.
+      relay.cancelExpect(ticket);
+      throw e;
     }
   };
 
