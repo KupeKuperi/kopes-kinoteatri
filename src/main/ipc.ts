@@ -53,8 +53,9 @@ export function registerIpc(
   handle('tools:install', async (tool: string) => {
     if (!(tool in TOOLS)) throw new Error('Unknown tool.');
     const r = await installTool(tool as Tool, (url) => shell.openExternal(url));
-    // The engine finds yt-dlp on the PATH it started with: restart it so it sees the new one.
-    if (!r.manual && tool === 'yt-dlp' && !engine.downloading) await engine.restart();
+    // The engine looks for players once and remembers "not found", and finds yt-dlp on the PATH it
+    // started with: restart it so it sees what was just installed (not while it downloads).
+    if (!r.manual && !engine.downloading) await engine.restart();
     return { env: env(), manual: r.manual };
   });
   handle('engine:snapshot', () => engine.session?.serialize() ?? '');

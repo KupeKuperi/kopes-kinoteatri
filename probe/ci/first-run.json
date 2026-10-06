@@ -22,7 +22,7 @@
   {"shot": "probe/out/ci/03-settings-vlc.png"},
 
   {"eval": "document.getElementById('global-search').focus(); 'focused search'"},
-  {"type": "Interstellar"},
+  {"type": "The Lord of the Rings: The Fellowship of the Ring"},
   {"key": "Enter"},
   {"until": "!document.querySelector('main .grid .skeleton') && (document.querySelectorAll('main .grid button.marquee').length > 0 || /NOTHING FOUND|DIDN'T FINISH/.test(document.querySelector('main').innerText))", "timeout": 90000},
   {"wait": 2500},

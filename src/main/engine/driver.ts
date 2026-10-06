@@ -570,6 +570,9 @@ export class Driver extends EventEmitter {
     if (message && /Loading streams/i.test(message)) return { status: 'loading', message, pane };
     if (message && /Choose an audio/i.test(message)) return { status: 'choose-audio', message, pane };
     if (message) return { status: 'empty', message, pane };
+    // Several audio tracks and a blank Streams pane: the TUI waits for a track (it doesn't always say so).
+    const audio = d.panes.find((p) => p.name === 'Audio');
+    if (audio && this.rowsOf(audio).length > 1) return { status: 'choose-audio', pane };
     return { status: 'idle', pane };
   }
 
