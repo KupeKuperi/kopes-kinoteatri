@@ -12,6 +12,8 @@ export class Screen {
   readonly grid: string[];
   /** Per-row bitmap: 1 where a non-blank cell has a non-default background. */
   readonly bg: Uint8Array[];
+  /** Per-row bitmap: 1 where a non-blank cell is bold. */
+  readonly bold: Uint8Array[];
   readonly cols: number;
   readonly rows: number;
 
@@ -22,10 +24,12 @@ export class Screen {
     this.rows = term.rows;
     this.grid = [];
     this.bg = [];
+    this.bold = [];
     for (let y = 0; y < term.rows; y++) {
       const line = buf.getLine(buf.viewportY + y);
       let row = '';
       const bg = new Uint8Array(term.cols);
+      const bold = new Uint8Array(term.cols);
       for (let x = 0; x < term.cols; x++) {
         if (!line) { row += ' '; continue; }
         line.getCell(x, cell);
@@ -34,9 +38,11 @@ export class Screen {
         // Astral characters (emoji) are two UTF-16 units; collapse to one unit so indices stay cell-aligned.
         row += w === 0 ? WIDE_TAIL : chars ? (chars.length > 1 ? '□' : chars) : ' ';
         if (chars.trim() && !cell.isBgDefault()) bg[x] = 1;
+        if (chars.trim() && cell.isBold()) bold[x] = 1;
       }
       this.grid.push(row);
       this.bg.push(bg);
+      this.bold.push(bold);
     }
   }
 
@@ -47,6 +53,13 @@ export class Screen {
 
   slice(y: number, x0: number, x1: number): string {
     return (this.grid[y] ?? '').slice(x0, x1).replaceAll(WIDE_TAIL, '');
+  }
+
+  hasBold(y: number, x0: number, x1: number): boolean {
+    const row = this.bold[y];
+    if (!row) return false;
+    for (let x = Math.max(0, x0); x < Math.min(x1, row.length); x++) if (row[x]) return true;
+    return false;
   }
 
   hasBg(y: number, x0: number, x1: number): boolean {
@@ -374,29 +387,38 @@ const TOAST = /╭ (✔|ℹ|✖|⚠) (SUCCESS|INFO|ERROR|WARNING) /;
 // ── Subtitle chooser ────────────────────────────────────────────────────────
 
 export interface SubtitlePicker {
-  /** Option labels in the box: all of them, or a window of 14 when the list is longer. */
+  /** Labels in the box: every option, or a window of 14 when the list is longer (it scrolls). */
   rows: string[];
-  /** 0-based position of the highlighted option, and how many options there are. */
-  selected: number;
-  total: number;
+  /** Which of `rows` is highlighted (drawn bold), or -1. */
+  highlighted: number;
+  /** From the title's "· 3/31" counter when the box is wide enough to show it; a narrow box cuts it to "1...". */
+  selected: number | null;
+  total: number | null;
+  /** The list is longer than the box: a scrollbar takes the box's last column. */
+  scrolls: boolean;
 }
 
 /** The TUI's "Subtitles · 2/5" chooser, shown before it plays or downloads a title that has captions. */
 export function parseSubtitlePicker(s: Screen): SubtitlePicker | null {
-  const top = s.grid.findIndex((row) => row.includes('╭ Subtitles · '));
+  const top = s.grid.findIndex((row) => row.includes('╭ Subtitles'));
   if (top < 0) return null;
-  const m = /╭ Subtitles · (\d+)\/(\d+)/.exec(s.grid[top]);
-  const x0 = s.grid[top].indexOf('╭ Subtitles · ');
+  const x0 = s.grid[top].indexOf('╭ Subtitles');
   const x1 = s.grid[top].indexOf('╮', x0);
-  if (!m || x1 < 0) return null;
+  if (x1 < 0) return null;
+  const counter = /· (\d+)\/(\d+)/.exec(s.slice(top, x0, x1 + 1));
+  // A scrollbar starts with its ▲ in the box's last column, on the first row.
+  const scrolls = s.slice(top + 1, x1 - 1, x1) === '▲';
+  const right = scrolls ? x1 - 1 : x1;
   const rows: string[] = [];
+  let highlighted = -1;
   for (let y = top + 1; y < s.rows; y++) {
-    const cell = s.slice(y, x0, x1 + 1);
-    if (cell.startsWith('╰')) break;
-    const r = /^│(.*)│$/.exec(cell);
-    if (r && r[1].trim()) rows.push(r[1].trim());
+    if (s.slice(y, x0, x0 + 1) !== '│') break; // ╰ ends the box
+    const text = s.slice(y, x0 + 1, right).trim();
+    if (!text) continue;
+    if (s.hasBold(y, x0 + 1, right)) highlighted = rows.length;
+    rows.push(text);
   }
-  return { rows, selected: Number(m[1]) - 1, total: Number(m[2]) };
+  return { rows, highlighted, selected: counter ? Number(counter[1]) - 1 : null, total: counter ? Number(counter[2]) : null, scrolls };
 }
 
 export function parseToasts(s: Screen): Array<Omit<Toast, 'id'>> {

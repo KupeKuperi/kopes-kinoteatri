@@ -14,8 +14,12 @@ echo "Testing $app"
 pid=$!
 for _ in $(seq 1 60); do curl -s http://127.0.0.1:9333/json > /dev/null && break; sleep 1; done
 
-# Players started by the test are closed as soon as they appear (nobody watches on a CI machine).
-( while kill -0 "$pid" 2> /dev/null; do pkill -x VLC 2> /dev/null; sleep 3; done ) &
+# Players started by the test are noted (their arguments show the subtitle file) and closed at
+# once: nobody watches on a CI machine.
+( while kill -0 "$pid" 2> /dev/null; do
+    ps -axo args= | grep -i "[V]LC.app" >> "$out/players.txt" && pkill -x VLC 2> /dev/null
+    sleep 2
+  done ) &
 
 node probe/cdp.mjs probe/ci/first-run.json 2>&1 | tee "$out/steps.log"
 
@@ -28,6 +32,7 @@ cp -R "$logs" "$out/engine-logs" 2> /dev/null || true
 ls -la "$HOME/.local/bin" > "$out/engine-folder.txt" 2>&1 || true
 launches=$(cat "$logs"/*.log 2> /dev/null | grep -c "launching player" || true)
 echo "Players launched: $launches" | tee -a "$out/steps.log"
+echo "Player starts with a subtitle file: $(grep -c -- '--sub-file' "$out/players.txt" 2> /dev/null || echo 0)" | tee -a "$out/steps.log"
 
 if grep -q "TIMEOUT" "$out/steps.log"; then echo "::warning::Some first-run steps timed out; see the mac-first-run artifact."; fi
 grep -q "ENGINE READY" "$out/steps.log" && [ "${launches:-0}" -ge 1 ]

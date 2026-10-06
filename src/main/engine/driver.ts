@@ -38,6 +38,7 @@ import {
   type Pane,
   type ResultsScreen,
   type Screen,
+  type SubtitlePicker,
 } from './screen';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -112,6 +113,14 @@ export function pickSubtitle(options: string[], preference: string): number | nu
   // "Portuguese" also takes "Portuguese (BR)"; "English" takes "English SDH".
   const loose = options.findIndex((o, i) => i > 0 && (label(o).startsWith(`${pref} `) || label(o).startsWith(`${pref}(`)));
   return loose > 0 ? loose : null;
+}
+
+/** Accepts labels that are exactly `preference`'s language (to stop reading a long list early), or null. */
+export function exactSubtitle(preference: string): ((label: string) => boolean) | null {
+  const pref = preference.trim().toLowerCase();
+  if (!pref || pref === 'ask' || pref === 'off') return null;
+  const names = [pref, ...(SUBTITLE_ALIASES[pref] ?? [])];
+  return (label) => names.includes(label.trim().toLowerCase());
 }
 
 const matchNorm = (s: string) =>
@@ -860,42 +869,72 @@ export class Driver extends EventEmitter {
   }
 
   // ── Subtitle chooser ─────────────────────────────────────────────────────
+  //
+  // "No subtitles" comes first, then the languages; Up and Down stop at the ends (no wrapping). A
+  // list longer than its 14-row box scrolls one row per Down past the bottom, and a narrow box cuts
+  // its "· 3/31" counter to "1...", so the driver keeps count itself: from the top it reads the
+  // labels as they scroll in.
 
-  /** Every option of the open subtitle chooser, scrolling through it when it is longer than its box. */
-  private async readSubtitleOptions(): Promise<string[]> {
-    const first = parseSubtitlePicker(this.s);
-    if (!first) return [];
-    if (first.rows.length >= first.total) return first.rows.slice(0, first.total);
-    // A window of rows: from the top, the highlight moves down to the last row, then the list scrolls under it.
-    const options: string[] = [];
-    await this.movePicker(0);
-    const top = parseSubtitlePicker(this.s);
+  /** Where this driver moved the chooser's highlight (0 = "No subtitles"). */
+  private pickerAt = 0;
+
+  /** Highlights the first option. Up stops there, so presses beyond it are harmless. */
+  private async pickerToTop(): Promise<SubtitlePicker | null> {
+    const p = parseSubtitlePicker(this.s);
+    if (!p) return null;
+    const ups = p.selected ?? (p.highlighted === 0 && !p.scrolls ? 0 : 80);
+    if (ups > 0) {
+      await this.key('up', ups);
+      await this.session.idle(120, 1500);
+    }
+    this.pickerAt = 0;
+    return parseSubtitlePicker(this.s);
+  }
+
+  /** Reads the chooser's options from the top, stopping at the first label `stop` accepts. */
+  private async readSubtitleOptions(stop?: (label: string) => boolean): Promise<string[]> {
+    const top = await this.pickerToTop();
     if (!top) return [];
-    top.rows.forEach((r, i) => (options[i] = r));
-    for (let i = top.rows.length; i < top.total; i++) {
-      await this.movePicker(i);
-      const p = parseSubtitlePicker(this.s);
-      if (!p || p.selected !== i) break;
-      options[i] = p.rows[p.rows.length - 1];
+    const options = [...top.rows];
+    const total = top.total;
+    if (stop && options.some((o, i) => i > 0 && stop(o))) return options;
+    if (!top.scrolls || (total !== null && options.length >= total)) return options;
+    // Down to the box's last row; from there each Down scrolls in one more label.
+    await this.key('down', options.length - 1);
+    this.pickerAt = options.length - 1;
+    for (let guard = 0; guard < 300 && (total === null || options.length < total); guard++) {
+      const before = parseSubtitlePicker(this.s)?.rows.join('\n') ?? '';
+      await this.key('down');
+      const next = await this.session
+        .waitFor('the next subtitle', (s) => {
+          const p = parseSubtitlePicker(s);
+          return p && p.rows.join('\n') !== before ? p : null;
+        }, 1000)
+        .catch(() => null);
+      if (!next) break; // the end of the list
+      options.push(next.rows[next.rows.length - 1]);
+      this.pickerAt = options.length - 1;
+      if (stop?.(options[options.length - 1])) break;
     }
-    return options.filter((o) => o !== undefined);
+    return options;
   }
 
-  /** Moves the chooser's highlight to option `index`. */
-  private async movePicker(index: number): Promise<void> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const p = parseSubtitlePicker(this.s);
-      if (!p) throw new Error('The engine closed its subtitle choice.');
-      const diff = index - p.selected;
-      if (diff === 0) return;
-      await this.pressAndWatch(diff > 0 ? 'down' : 'up', Math.abs(diff), () => parseSubtitlePicker(this.s)?.selected);
+  /** Highlights option `index` of `options` and confirms it, then waits for the chooser to close. */
+  private async confirmPicker(index: number, options: string[]): Promise<void> {
+    const diff = index - this.pickerAt;
+    if (diff) await this.key(diff > 0 ? 'down' : 'up', Math.abs(diff));
+    this.pickerAt = index;
+    await this.session.idle(120, 1500);
+    const p = parseSubtitlePicker(this.s);
+    if (!p) throw new Error('The engine closed its subtitle choice.');
+    // Where the screen tells (the counter, or the bold row), check the highlight is on it.
+    const shown = p.selected !== null ? options[p.selected] : p.highlighted >= 0 ? p.rows[p.highlighted] : undefined;
+    if (shown !== undefined && options[index] !== undefined && shown !== options[index]) {
+      await this.pickerToTop(); // a key got lost: count again from the top
+      if (index) await this.key('down', index);
+      this.pickerAt = index;
+      await this.session.idle(120, 1500);
     }
-    throw new Error(`Could not move to subtitle option ${index + 1}.`);
-  }
-
-  /** Picks option `index` (0 = no subtitles) and waits for the chooser to close. */
-  private async confirmPicker(index: number): Promise<void> {
-    await this.movePicker(index);
     await this.key('enter');
     await this.session.waitFor('the subtitle choice to close', (s) => !parseSubtitlePicker(s), 4000);
   }
@@ -906,10 +945,14 @@ export class Driver extends EventEmitter {
    */
   private async answerPicker(): Promise<'answered' | 'asked' | 'none'> {
     if (!parseSubtitlePicker(this.s)) return 'none';
-    const options = await this.readSubtitleOptions();
-    const choice = pickSubtitle(options, this.subtitlePreference());
+    const preference = this.subtitlePreference();
+    const options =
+      preference.trim().toLowerCase() === 'off'
+        ? ((await this.pickerToTop())?.rows ?? [])
+        : await this.readSubtitleOptions(exactSubtitle(preference) ?? undefined);
+    const choice = pickSubtitle(options, preference);
     if (choice !== null && choice < options.length) {
-      await this.confirmPicker(choice);
+      await this.confirmPicker(choice, options);
       return 'answered';
     }
     this.offered = { purpose: this.pickerPurpose, title: this.details?.title ?? '', options };
@@ -942,7 +985,7 @@ export class Driver extends EventEmitter {
           return;
         }
         const mark = this.logSize();
-        await this.confirmPicker(index);
+        await this.confirmPicker(index, offered?.options ?? []);
         if (offered?.purpose !== 'download') await this.awaitPlayback(mark, 20000);
       },
       { keepPicker: true },
