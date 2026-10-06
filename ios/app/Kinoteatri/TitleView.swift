@@ -1,21 +1,28 @@
 // A title: poster, facts, description; for a series a season picker and its episodes; then the
-// streams of the film (or the chosen episode). A stream opens the player.
+// streams of the film (or the chosen episode). A stream opens the player. A title with several
+// dubs opens on the TUI's default one (Original, else English); the Audio list switches dubs.
 
 import SwiftUI
 
 struct TitleView: View {
     let title: Title
 
+    /// The details of the dub shown: its id is what streams and play use.
     @State private var details: Details?
+    /// Every dub of the title (the details of each list them all).
+    @State private var audio: [AudioTrack] = []
+    /// The dub being loaded.
+    @State private var switchingAudio: String?
     @State private var season = 0
     @State private var episode = 0
     @State private var streams: [Stream] = []
     @State private var loadingStreams = false
-    /// The season/episode the streams are for, so coming back from the player doesn't reload them.
+    /// The dub/season/episode the streams are for, so coming back from the player doesn't reload
+    /// them.
     @State private var streamsKey: String?
     /// The stream being started.
     @State private var starting: Int?
-    @State private var play: Play?
+    @State private var playing: Playing?
     @State private var error: String?
 
     var body: some View {
@@ -30,31 +37,25 @@ struct TitleView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if let details, details.isSeries, !details.seasons.isEmpty {
-                episodesSection(details)
-            }
             if let details {
+                if audio.count > 1 {
+                    audioSection(current: details.id)
+                }
+                if details.isSeries, !details.seasons.isEmpty {
+                    episodesSection(details)
+                }
                 Section {
                     streamRows
                 } header: {
                     Text(details.isSeries ? "Streams · S\(season) E\(episode)" : "Streams")
                 }
-                if !details.audio.isEmpty {
-                    Section("Other audio") {
-                        ForEach(details.audio) { track in
-                            NavigationLink(value: Title(id: track.id, title: "\(details.title) · \(track.label)", year: details.year, kind: details.kind, poster: details.poster, rating: details.rating)) {
-                                Label(track.label, systemImage: "speaker.wave.2")
-                            }
-                        }
-                    }
-                }
             }
         }
-        .navigationTitle(title.title)
+        .navigationTitle(details?.title ?? title.title)
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadDetails() }
         .task(id: "\(details?.id ?? "")/\(season)/\(episode)") { await loadStreams() }
-        .fullScreenCover(item: $play) { PlayerView(play: $0) }
+        .fullScreenCover(item: $playing) { PlayerView(playing: $0) }
         .errorAlert($error)
     }
 
@@ -84,6 +85,36 @@ struct TitleView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    /// The dubs; the one shown has a checkmark, the others switch to theirs.
+    private func audioSection(current: String) -> some View {
+        Section("Audio") {
+            ForEach(audio) { track in
+                if track.id == current {
+                    HStack {
+                        Label(track.label, systemImage: "speaker.wave.2.fill")
+                        Spacer()
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                } else {
+                    Button {
+                        Task { await switchAudio(to: track) }
+                    } label: {
+                        HStack {
+                            Label(track.label, systemImage: "speaker.wave.2")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if switchingAudio == track.id {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(switchingAudio != nil)
+                }
+            }
+        }
     }
 
     private func episodesSection(_ details: Details) -> some View {
@@ -159,6 +190,7 @@ struct TitleView: View {
                     }
                 }
                 .disabled(starting != nil)
+                .accessibilityIdentifier("stream-\(stream.index)")
             }
         }
     }
@@ -173,21 +205,61 @@ struct TitleView: View {
     private func loadDetails() async {
         guard details == nil else { return }
         do {
-            let loaded = try await KinoCore.shared.details(id: title.id)
-            // Together, so the streams load once, for the first episode of a series.
-            if loaded.isSeries, let first = loaded.seasons.first {
-                season = first.season
-                episode = first.episodes.first?.episode ?? 0
+            var loaded = try await KinoCore.shared.details(id: title.id)
+            remember(loaded.audio)
+            // Several dubs: start on the TUI's default one, with its own id's details.
+            if let preferred = loaded.preferredAudio, preferred.id != loaded.id {
+                do {
+                    loaded = try await KinoCore.shared.details(id: preferred.id)
+                    remember(loaded.audio)
+                } catch {
+                    self.error = describe(error)
+                }
             }
-            details = loaded
+            show(loaded)
         } catch {
             self.error = describe(error)
         }
     }
 
+    private func switchAudio(to track: AudioTrack) async {
+        guard let current = details, track.id != current.id, switchingAudio == nil else { return }
+        switchingAudio = track.id
+        defer { switchingAudio = nil }
+        do {
+            let loaded = try await KinoCore.shared.details(id: track.id)
+            remember(loaded.audio)
+            show(loaded, keeping: (season: season, episode: episode))
+        } catch {
+            self.error = describe(error)
+        }
+    }
+
+    private func remember(_ tracks: [AudioTrack]) {
+        if !tracks.isEmpty {
+            audio = tracks
+        }
+    }
+
+    /// Shows a dub: the same episode if it has it (`keeping`), else its first one. Changing the
+    /// details' id reloads the streams.
+    private func show(_ loaded: Details, keeping: (season: Int, episode: Int)? = nil) {
+        var chosen = (season: 0, episode: 0)
+        if loaded.isSeries {
+            if let keeping, loaded.seasons.contains(where: { $0.season == keeping.season && $0.episodes.contains { $0.episode == keeping.episode } }) {
+                chosen = keeping
+            } else if let first = loaded.seasons.first {
+                chosen = (season: first.season, episode: first.episodes.first?.episode ?? 0)
+            }
+        }
+        season = chosen.season
+        episode = chosen.episode
+        details = loaded
+    }
+
     private func loadStreams() async {
         guard let details else { return }
-        let key = "\(season)/\(episode)"
+        let key = "\(details.id)/\(season)/\(episode)"
         guard key != streamsKey else { return }
         streams = []
         streamsKey = nil
@@ -212,8 +284,10 @@ struct TitleView: View {
         guard starting == nil, let details else { return }
         starting = stream.index
         defer { starting = nil }
+        let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index)
         do {
-            play = try await KinoCore.shared.play(id: details.id, season: season, episode: episode, stream: stream.index)
+            let play = try await KinoCore.shared.play(request)
+            playing = Playing(request: request, play: play)
         } catch {
             self.error = describe(error)
         }

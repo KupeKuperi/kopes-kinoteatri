@@ -80,6 +80,20 @@ final class ModelsTests: XCTestCase {
         XCTAssertNotNil(play.subtitles)
     }
 
+    /// The TUI's default dub: Original, else English, else the first (kino-smoke's preferred_audio).
+    func testPreferredAudio() {
+        func preferred(_ labels: String...) -> String? {
+            let tracks = labels.enumerated().map { AudioTrack(id: "\($0.offset)", label: $0.element) }
+            return Details.preferredAudio(in: tracks)?.label
+        }
+        XCTAssertEqual(preferred("Hindi", "English", "Original Audio"), "Original Audio")
+        XCTAssertEqual(preferred("Hindi", "ENGLISH"), "ENGLISH")
+        XCTAssertEqual(preferred("Hindi", "Orig. (Japanese)", "English"), "Orig. (Japanese)")
+        XCTAssertEqual(preferred("French", "Eng"), "Eng")
+        XCTAssertEqual(preferred("Hindi", "Tamil"), "Hindi")
+        XCTAssertNil(preferred())
+    }
+
     func testStopAnswersNull() throws {
         XCTAssertNoThrow(try KinoCore.decodeAnswer(String.self, from: Data(#"{"ok":true,"value":null}"#.utf8)))
         XCTAssertNil(try KinoCore.decodeAnswer(String.self, from: Data(#"{"ok":true,"value":null}"#.utf8)))

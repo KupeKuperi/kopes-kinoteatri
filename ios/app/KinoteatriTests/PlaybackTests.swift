@@ -1,7 +1,8 @@
 // End to end in the iOS Simulator, with whichever core the app was built with (stub or engine):
-// search, open the first title, list its streams, play the first one. AVPlayer must really play it:
-// ready to play, then its clock advances at least 5 seconds. Leaves a frame of the video and a
-// summary as attachments (CI exports them from the .xcresult).
+// search, open the first title (its default dub), list its streams, play the first one. AVPlayer
+// must really play it: ready to play, then its clock advances at least 5 seconds. And "Try again"
+// after a failure in the middle of a film resumes where it stopped. Leaves a frame of the video and
+// a summary as attachments (CI exports them from the .xcresult).
 
 import AVFoundation
 import AVKit
@@ -10,6 +11,10 @@ import XCTest
 @testable import Kinoteatri
 
 final class PlaybackTests: XCTestCase {
+    private struct Failure: Error, CustomStringConvertible {
+        let description: String
+    }
+
     private let core = KinoCore.shared
     private var notes: [String] = []
 
@@ -22,34 +27,8 @@ final class PlaybackTests: XCTestCase {
     @MainActor
     func testSearchOpenAndPlay() async throws {
         defer { attachNotes() }
-        note("data folder: \(core.startedDataDir?.path ?? "?")")
-
-        let version = try await core.version()
-        note("core \(version.core), engine \(version.engine), mode \(version.mode)")
-
-        let query = version.mode == "engine" ? "The Lord of the Rings" : "bip bop"
-        let results = try await core.search(query)
-        note("search \"\(query)\": \(results.count) titles: \(results.prefix(5).map { "\($0.title) (\($0.kind), \($0.id))" })")
-        let first = try XCTUnwrap(results.first, "Nothing found for \(query)")
-
-        let details = try await core.details(id: first.id)
-        XCTAssertFalse(details.title.isEmpty)
-        var season = 0
-        var episode = 0
-        if details.isSeries {
-            let firstSeason = try XCTUnwrap(details.seasons.first, "A series without seasons")
-            season = firstSeason.season
-            episode = try XCTUnwrap(firstSeason.episodes.first, "Season \(season) has no episodes").episode
-        }
-        note("details: \(details.title), \(details.kind), \(details.seasons.count) seasons, \(details.audio.count) other dubs")
-
-        let streams = try await core.streams(id: details.id, season: season, episode: episode)
-        note("streams (S\(season) E\(episode)): \(streams.map(\.label))")
-        let stream = try XCTUnwrap(streams.first, "No streams")
-
-        let play = try await core.play(id: details.id, season: season, episode: episode, stream: stream.index)
-        note("play: \(play.kind) \(play.url), session \(play.session)")
-        let url = try XCTUnwrap(URL(string: play.url), "Bad URL \(play.url)")
+        let playing = try await openFirstStream()
+        let url = try XCTUnwrap(URL(string: playing.play.url), "Bad URL \(playing.play.url)")
 
         let item = AVPlayerItem(url: url)
         let frames = AVPlayerItemVideoOutput(pixelBufferAttributes: [kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)])
@@ -72,13 +51,83 @@ final class PlaybackTests: XCTestCase {
 
         player.pause()
         shown?.dismiss(animated: false)
-        try await core.stop(session: play.session)
-        note("stopped \(play.session)")
+        try await core.stop(session: playing.play.session)
+        note("stopped \(playing.play.session)")
 
         if let failure = outcome.failure {
             XCTFail(failure)
         }
         XCTAssertGreaterThanOrEqual(outcome.advanced, 5, "The video didn't advance 5 s: \(outcome.summary)")
+    }
+
+    /// The player's "Try again" after a failure mid-film (an expired CDN cookie, say): asks the core
+    /// for the stream again and resumes where it stopped.
+    @MainActor
+    func testTryAgainResumesWhereItStopped() async throws {
+        defer { attachNotes() }
+        let playing = try await openFirstStream()
+        let model = PlayerModel(playing: playing)
+        model.start()
+        defer { model.close() }
+
+        try await waitUntil(90, "6 s played") { model.lastTime >= 6 }
+        let stoppedAt = model.lastTime
+        // What AVPlayer posts when a segment fails in the middle of playback.
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorNoPermissionsToReadFile, userInfo: [NSLocalizedDescriptionKey: "HTTP 403 (simulated)"])
+        NotificationCenter.default.post(name: .AVPlayerItemFailedToPlayToEndTime, object: model.player.currentItem, userInfo: [AVPlayerItemFailedToPlayToEndTimeErrorKey: error])
+        try await waitUntil(5, "the failure shown") { model.failure != nil }
+        note("failed at \(String(format: "%.1f", stoppedAt)) s: \(model.failure ?? "")")
+
+        model.retry()
+        try await waitUntil(60, "playing again") {
+            model.failure == nil && !model.retrying && model.player.timeControlStatus == .playing && model.player.currentTime().seconds > 1
+        }
+        let resumedAt = model.player.currentTime().seconds
+        note("try again: resumed at \(String(format: "%.1f", resumedAt)) s")
+        XCTAssertGreaterThanOrEqual(resumedAt, stoppedAt - 1.5, "Try again didn't resume where it stopped")
+        XCTAssertLessThan(resumedAt, stoppedAt + 10)
+
+        let before = model.player.currentTime().seconds
+        try await waitUntil(30, "2 s more played") { model.player.currentTime().seconds >= before + 2 }
+    }
+
+    // MARK: Search to play
+
+    /// Search, the first title (its default dub, as the app opens it), its first stream, play.
+    @MainActor
+    private func openFirstStream() async throws -> Playing {
+        note("data folder: \(core.startedDataDir?.path ?? "?")")
+        let version = try await core.version()
+        note("core \(version.core), engine \(version.engine), mode \(version.mode)")
+
+        let query = version.mode == "engine" ? "The Lord of the Rings" : "bip bop"
+        let results = try await core.search(query)
+        note("search \"\(query)\": \(results.count) titles: \(results.prefix(5).map { "\($0.title) (\($0.kind), \($0.id))" })")
+        let first = try XCTUnwrap(results.first, "Nothing found for \(query)")
+
+        var details = try await core.details(id: first.id)
+        XCTAssertFalse(details.title.isEmpty)
+        note("details: \(details.title), \(details.kind), \(details.seasons.count) seasons, audio \(details.audio.map(\.label))")
+        if let preferred = details.preferredAudio, preferred.id != details.id {
+            details = try await core.details(id: preferred.id)
+            note("default dub \(preferred.label): \(details.id)")
+        }
+        var season = 0
+        var episode = 0
+        if details.isSeries {
+            let firstSeason = try XCTUnwrap(details.seasons.first, "A series without seasons")
+            season = firstSeason.season
+            episode = try XCTUnwrap(firstSeason.episodes.first, "Season \(season) has no episodes").episode
+        }
+
+        let streams = try await core.streams(id: details.id, season: season, episode: episode)
+        note("streams (S\(season) E\(episode)): \(streams.map(\.label))")
+        let stream = try XCTUnwrap(streams.first, "No streams")
+
+        let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index)
+        let play = try await core.play(request)
+        note("play: \(play.kind) \(play.url), session \(play.session)")
+        return Playing(request: request, play: play)
     }
 
     // MARK: Playing
@@ -146,6 +195,18 @@ final class PlaybackTests: XCTestCase {
             parts.append("bitrate \(Int(event.indicatedBitrate)), stalls \(event.numberOfStalls)")
         }
         return parts.joined(separator: "; ")
+    }
+
+    /// Polls `condition` every 0.2 s for at most `seconds`.
+    @MainActor
+    private func waitUntil(_ seconds: TimeInterval, _ what: String, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition() {
+            if Date() > deadline {
+                throw Failure(description: "Waited \(Int(seconds)) s for \(what)")
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
     }
 
     /// The player full screen in the host app's window, as the app shows it.

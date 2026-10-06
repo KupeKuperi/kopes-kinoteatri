@@ -84,12 +84,27 @@ targets:
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/Kinoteatri.app/Kinoteatri
         BUNDLE_LOADER: $(TEST_HOST)
 
+  KinoteatriUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: KinoteatriUITests
+    dependencies:
+      # Drives the app itself (search, title, player) and screenshots each screen.
+      - target: Kinoteatri
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kope.kinoteatri.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Kinoteatri
+
 schemes:
   Kinoteatri:
     build:
       targets:
         Kinoteatri: all
         KinoteatriTests: [test]
+        KinoteatriUITests: [test]
     run:
       config: Debug
     test:
@@ -97,6 +112,8 @@ schemes:
       gatherCoverageData: false
       targets:
         - name: KinoteatriTests
+          parallelizable: false
+        - name: KinoteatriUITests
           parallelizable: false
     archive:
       config: Release

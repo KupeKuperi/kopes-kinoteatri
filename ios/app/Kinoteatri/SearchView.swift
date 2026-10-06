@@ -50,6 +50,7 @@ struct SearchView: View {
                     Text("core \(version.core) · engine \(version.engine) · \(version.mode)")
                         .font(.footnote)
                         .foregroundStyle(.tertiary)
+                        .accessibilityIdentifier("core-version")
                 }
             }
             .multilineTextAlignment(.center)

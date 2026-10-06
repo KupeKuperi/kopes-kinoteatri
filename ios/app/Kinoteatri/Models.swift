@@ -91,6 +91,20 @@ extension Title {
 
 extension Details {
     var isSeries: Bool { kind == "series" }
+
+    /// The dub to start with, by the TUI's rule: Original, else English, else the first
+    /// (the same matching as kino-smoke's `preferred_audio`).
+    var preferredAudio: AudioTrack? { Self.preferredAudio(in: audio) }
+
+    static func preferredAudio(in tracks: [AudioTrack]) -> AudioTrack? {
+        func find(_ patterns: [String]) -> AudioTrack? {
+            tracks.first { track in
+                let label = track.label.lowercased()
+                return patterns.contains { label.contains($0) }
+            }
+        }
+        return find(["original", "orig"]) ?? find(["english", "eng"]) ?? tracks.first
+    }
 }
 
 /// "2010 · Movie" and the like.

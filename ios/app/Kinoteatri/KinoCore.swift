@@ -131,6 +131,16 @@ final class KinoCore: @unchecked Sendable {
 
 // MARK: The requests (ios/GUIDE.md)
 
+/// The arguments of `play`, kept so a failed play can be asked for again.
+struct PlayRequest: Hashable {
+    let id: String
+    /// 0 for movies, like `episode`.
+    let season: Int
+    let episode: Int
+    let stream: Int
+    var subtitles: String?
+}
+
 extension KinoCore {
     func version() async throws -> CoreVersion {
         try await call(["op": "version"])
@@ -154,6 +164,10 @@ extension KinoCore {
         var request: [String: Any] = ["op": "play", "id": id, "season": season, "episode": episode, "stream": stream]
         if let subtitles { request["subtitles"] = subtitles }
         return try await call(request)
+    }
+
+    func play(_ request: PlayRequest) async throws -> Play {
+        try await play(id: request.id, season: request.season, episode: request.episode, stream: request.stream, subtitles: request.subtitles)
     }
 
     func stop(session: String) async throws {
