@@ -73,8 +73,13 @@ impl Resolve for FallbackResolver {
 }
 
 pub fn http_client_builder_base() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .dns_resolver(Arc::new(FallbackResolver::new()))
+    let builder = reqwest::Client::builder();
+    // kino (iPhone): iOS apps can't read the phone's DNS setup, so hickory would always fall back
+    // to public DNS (no VPN DNS, no NAT64 on IPv6-only mobile networks). reqwest's default
+    // resolver, getaddrinfo, asks the system. See KINO-CHANGES.md.
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder.dns_resolver(Arc::new(FallbackResolver::new()));
+    builder
         .tcp_nodelay(true)
         .tcp_keepalive(Some(std::time::Duration::from_secs(45)))
         .pool_idle_timeout(Some(std::time::Duration::from_secs(90)))
