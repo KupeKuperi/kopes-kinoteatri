@@ -22,7 +22,7 @@ function runReal() {
     process.exit(1);
   }
   // A .cmd or .bat player runs through cmd.exe, quoted the way cmd reads it.
-  const batch = process.platform === 'win32' && /\.(cmd|bat)$/i.test(real);
+  const batch = process.platform === 'win32' && /\\.(cmd|bat)$/i.test(real);
   const quote = (a) => '"' + String(a).replace(/"/g, '""').replace(/%/g, '%%cd:~,%') + '"';
   const child = batch
     ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/e:ON', '/v:OFF', '/c', '"' + [real, ...args].map(quote).join(' ') + '"'], { stdio: 'inherit', windowsVerbatimArguments: true })
