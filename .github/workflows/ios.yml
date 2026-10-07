@@ -64,8 +64,8 @@ jobs:
           KINO_DATA: ${{ runner.temp }}/kino-smoke
         run: cargo run -p kino-core --bin kino-smoke Inception
 
-  # TEMPORARY (ios-player-fix): the app's Swift type-checked in a few minutes, before the main job
-  # has built the core.
+  # The app's Swift (and its tests) type-checked in about a minute, so a compile error shows long
+  # before the main job has built the core (no Mac here to try a build first).
   typecheck:
     name: Swift typecheck (fast)
     runs-on: macos-latest

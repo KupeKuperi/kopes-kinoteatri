@@ -44,6 +44,9 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         let screen = PlayerScreen(playing: playing, startAt: startAt)
         current = screen
         screen.model.start()
+        // The search field can still hold the keyboard (hidden): it would come up over the
+        // player with the player's own menu.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         let pictureInPicture = AVPictureInPictureController.isPictureInPictureSupported() ? "supported" : "not supported"
         Diagnostics.shared.log("player: full screen, session \(playing.play.session), picture in picture \(pictureInPicture)")
         top.present(screen.controller, animated: true)

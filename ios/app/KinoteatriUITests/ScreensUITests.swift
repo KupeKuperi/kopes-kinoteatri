@@ -15,6 +15,8 @@ final class ScreensUITests: XCTestCase {
     private var app: XCUIApplication!
     private var notes: [String] = []
     private var summary = "summary-ui"
+    /// Seen with the player's menu: the search field's keyboard over the player.
+    private var keyboardOverPlayer = false
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -67,6 +69,12 @@ final class ScreensUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         try checkNoAlert()
         shot("5-player-landscape")
+        // The whole screen too: the app's screenshot can draw a playing video sideways in
+        // landscape (the screen recording shows it right).
+        let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screen.name = "5b-screen-landscape"
+        screen.lifetime = .keepAlways
+        add(screen)
         try checkFillsWindow(video, landscape: true)
 
         XCUIDevice.shared.orientation = .portrait
@@ -99,6 +107,10 @@ final class ScreensUITests: XCTestCase {
         XCTAssertEqual(toggle.value as? String, "1", "English subtitles should be on by default")
         shot("9-inception-title")
         stream.tap()
+        // "Starting…" while the core resolves the play and looks for the subtitles (best effort).
+        if element("starting").exists {
+            shot("9b-starting")
+        }
 
         let video = element("player-video")
         try wait(for: video, 120, "The player didn't open")
@@ -111,6 +123,7 @@ final class ScreensUITests: XCTestCase {
         note("subtitles: \(facts(video)); a line on screen: \(line)")
         try checkNoAlert()
         showPlayerMenu(video)
+        XCTAssertFalse(keyboardOverPlayer, "A keyboard came up over the player with its menu")
         try closePlayer(video)
         try wait(for: stream, 30, "Didn't come back to the title from the player")
     }
@@ -210,6 +223,7 @@ final class ScreensUITests: XCTestCase {
                 Thread.sleep(forTimeInterval: 1.5)
                 shot("11-player-menu")
                 note("player menu: \(names())")
+                keyboardOverPlayer = keyboardOverPlayer || keyboardShown()
                 let subtitles = NSPredicate(format: "label CONTAINS[c] 'subtitle' OR label CONTAINS[c] 'caption'")
                 if let item = try? app.descendants(matching: .any).matching(subtitles).firstMatch.snapshot() {
                     tap(at: item.frame)
@@ -226,6 +240,12 @@ final class ScreensUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.8)
         }
         note("player menu: no More Controls button")
+    }
+
+    /// A software keyboard on screen (from one snapshot).
+    private func keyboardShown() -> Bool {
+        guard let keyboard = try? app.keyboards.firstMatch.snapshot(), let window = try? app.windows.firstMatch.snapshot() else { return false }
+        return keyboard.frame.height > 50 && keyboard.frame.minY < window.frame.maxY - 50
     }
 
     private func tap(at frame: CGRect) {
