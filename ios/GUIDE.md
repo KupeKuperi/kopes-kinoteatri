@@ -150,15 +150,27 @@ CI (`.github/workflows/ios.yml`, public repo so GitHub's Macs are free):
       first), streams, AVPlayer with "Try again" after a failure); CI builds the real engine for
       both iOS targets (no engine source changes needed) and plays live MovieBox in the Simulator
 - [x] Integration: real engine in the app, CI green end to end (lead) — merged to main 2ec0230
-- [ ] AltStore install guide for the user; user test on the iPhone
+- [x] AltStore install guide for the user; user test on the iPhone (2026-10-07: installs and
+      plays; reported: full screen didn't work)
+- [x] Player fix (branch `ios-player-fix`, merged to main at 0a57857; known left: the search
+      keyboard can come up over the player when its menu opens, fix in progress on the branch):
+      Apple's AVPlayerViewController presented full screen
+      from the top view controller (`PlayerScreen.swift`: own close button, swipe down, rotation,
+      PiP; the core's `stop` runs once it's neither shown, presented nor in PiP); "English
+      subtitles" switch on the title screen (on by default, @AppStorage), English legible option
+      selected automatically; "Copy diagnostics" (`Diagnostics.swift`, 200 redacted lines: no
+      cookies, headers, tokens or stream URLs) in the Try-again card and the About sheet.
+      Test-only environment: `KINO_UI_TEST=1` (the player describes itself to the UI tests),
+      `KINO_UITEST_START_AT` (start a film n seconds in). CI also has a ~1 min Swift typecheck job
+      and an Inception subtitle smoke step; XCTest's automatic failure recordings are off (they
+      would put film footage in the public test results).
 
 ## Later (step 2 candidates, not started)
 
 Seen while building step 1; none blocks playback.
 
-- **Subtitles in the app:** the core supports `play … subtitles: "English"` (the HLS master then
-  names the track); the app doesn't ask yet. Needs a picker and, ideally, an op listing the
-  languages a release has.
+- **Subtitles beyond English:** the app asks only for English; a picker would need an op listing
+  the languages MovieBox has for a release.
 - **Georgian UI** like the desktop app (ქარ/ENG).
 - **HLS BANDWIDTH:** AVPlayer logs `-12318 Segment exceeds specified bandwidth` because DASH
   `@bandwidth` (an average) goes into BANDWIDTH (meant as the peak). Playback doesn't stall; a
@@ -172,4 +184,7 @@ Seen while building step 1; none blocks playback.
   engine never cached as a path dependency); a CI-only thin-LTO/codegen-units override would cut
   it.
 - **Real-device checks** CI can't do: background the app mid-play and play again (listener
-  re-bind, TN2277), Picture in Picture, AltStore's weekly refresh.
+  re-bind, TN2277), Picture in Picture (the CI Simulator reports it unsupported), AltStore's
+  weekly refresh.
+- **CI time** grew to 11–15 min for the core build on the player-fix runs (core unchanged);
+  see the CI time item above.
