@@ -45,6 +45,19 @@ AltStore is now on the home screen.
 Install it from AltStore like this, not with AltServer's "Sideload .ipa…" menu: apps AltStore
 installs renew themselves every week; apps sideloaded from the PC menu must be reinstalled by hand.
 
+## Optional: no PC after the setup (Remote AltServer)
+
+AltServer only runs on a computer, and the first setup above needs one once. After that,
+AltStore can install and renew apps from the phone itself, through AltStore's Remote AltServers
+on the internet instead of your PC:
+
+1. AltStore → **Settings → Remote AltServer → Set up Remote AltServer…** and follow its steps
+   (it pairs with the PC once and installs the small **LocalDevVPN** app).
+2. To install or renew: be on **Wi-Fi** (not mobile data) with **LocalDevVPN** connected, then
+   use AltStore as usual (My Apps → + for Kinoteatri, Refresh All to renew).
+
+The 7-day renewal and the 3-app limit stay the same; only the PC is no longer needed for them.
+
 ## Good to know
 
 - **7 days.** With background refresh on (AltStore → Settings) the app renews by itself when the
