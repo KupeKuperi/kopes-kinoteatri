@@ -14,6 +14,7 @@ struct KinoteatriApp: App {
     }()
 
     init() {
+        Diagnostics.shared.log("app \(Diagnostics.appVersion) started · \(Diagnostics.deviceModel) · \(ProcessInfo.processInfo.operatingSystemVersionString)")
         // Films keep playing with the ringer switch on silent, in the background and in picture in
         // picture.
         do {

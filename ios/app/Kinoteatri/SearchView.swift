@@ -1,4 +1,5 @@
-// Search: a field, then the results (poster, title, year, kind); a result opens its title.
+// Search: a field, then the results (poster, title, year, kind); a result opens its title. The
+// toolbar's About shows the versions and "Copy diagnostics".
 
 import SwiftUI
 
@@ -9,6 +10,7 @@ struct SearchView: View {
     /// The query the results are for (nil before the first search).
     @State private var searched: String?
     @State private var version: CoreVersion?
+    @State private var showingAbout = false
     @State private var error: String?
 
     var body: some View {
@@ -25,8 +27,24 @@ struct SearchView: View {
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Films and series")
             .autocorrectionDisabled()
             .onSubmit(of: .search) { Task { await search() } }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingAbout = true
+                    } label: {
+                        Image(systemName: "info.circle")
+                    }
+                    .accessibilityLabel("About")
+                    .accessibilityIdentifier("about")
+                }
+            }
+            .sheet(isPresented: $showingAbout) { AboutView(version: version) }
             // Starts the core (Application Support/Kinoteatri) as the app opens.
-            .task { version = try? await KinoCore.shared.version() }
+            .task {
+                if version == nil {
+                    version = try? await KinoCore.shared.version()
+                }
+            }
             .errorAlert($error)
         }
     }

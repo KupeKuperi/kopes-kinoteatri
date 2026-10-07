@@ -58,6 +58,42 @@ jobs:
           KINO_DATA: ${{ runner.temp }}/kino-smoke
         run: cargo run -p kino-core --bin kino-smoke
 
+      # The title the app's subtitle tests play (English captions).
+      - name: Smoke test against live MovieBox (Inception, English subtitles)
+        env:
+          KINO_DATA: ${{ runner.temp }}/kino-smoke
+        run: cargo run -p kino-core --bin kino-smoke Inception
+
+  # TEMPORARY (ios-player-fix): the app's Swift type-checked in a few minutes, before the main job
+  # has built the core.
+  typecheck:
+    name: Swift typecheck (fast)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: ios/app
+    steps:
+      - uses: actions/checkout@v5
+      - name: Typecheck the app and its tests
+        run: |
+          sdk=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          platform=$(xcrun --sdk iphonesimulator --show-sdk-platform-path)
+          target=arm64-apple-ios16.0-simulator
+          out="$RUNNER_TEMP/typecheck"
+          mkdir -p "$out"
+          xcrun swiftc -version
+          xcrun swiftc -typecheck -swift-version 5 -target "$target" -sdk "$sdk" -I KinoFFI -module-name Kinoteatri Kinoteatri/*.swift
+          xcrun swiftc -emit-module -enable-testing -swift-version 5 -target "$target" -sdk "$sdk" -I KinoFFI \
+            -module-name Kinoteatri -emit-module-path "$out/Kinoteatri.swiftmodule" Kinoteatri/*.swift
+          xcrun swiftc -typecheck -swift-version 5 -target "$target" -sdk "$sdk" -I "$out" -I KinoFFI \
+            -F "$platform/Developer/Library/Frameworks" -I "$platform/Developer/usr/lib" \
+            -module-name KinoteatriTests KinoteatriTests/*.swift
+          xcrun swiftc -typecheck -swift-version 5 -target "$target" -sdk "$sdk" \
+            -F "$platform/Developer/Library/Frameworks" -I "$platform/Developer/usr/lib" \
+            -module-name KinoteatriUITests KinoteatriUITests/*.swift
+
   ios:
     name: iPhone app (Simulator tests, unsigned .ipa)
     runs-on: macos-latest

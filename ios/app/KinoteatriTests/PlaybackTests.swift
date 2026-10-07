@@ -2,8 +2,9 @@
 // MovieBox; stub: canned titles and Apple's test stream): search, open the first title (its default
 // dub), list its streams, play the last (lightest) one. AVPlayer
 // must really play it: ready to play, then its clock advances at least 5 seconds. And "Try again"
-// after a failure in the middle of a film resumes where it stopped. Leaves a frame of the video and
-// a summary as attachments (CI exports them from the .xcresult).
+// after a failure in the middle of a film resumes where it stopped. English subtitles (Inception):
+// the player offers them and the app selects them by itself; closing the player ends the session.
+// Leaves a frame of the video and a summary as attachments (CI exports them from the .xcresult).
 
 import AVFoundation
 import AVKit
@@ -92,17 +93,64 @@ final class PlaybackTests: XCTestCase {
         try await waitUntil(30, "2 s more played") { model.player.currentTime().seconds >= before + 2 }
     }
 
+    /// English subtitles, as the app asks for them: Inception (English captions in the core's smoke
+    /// test), shown full screen as the app shows it. The player item offers a legible option in
+    /// "en" and the app's player selects it by itself. Closing the player ends the core's session.
+    @MainActor
+    func testEnglishSubtitlesAreSelected() async throws {
+        defer { attachNotes() }
+        let version = try await core.version()
+        try XCTSkipIf(version.mode != "engine", "The stub core has no subtitles.")
+        let playing = try await openFirstStream(query: "Inception", subtitles: "English")
+        let address = try XCTUnwrap(playing.play.subtitles, "The core found no English subtitles for Inception")
+        let (data, _) = try await URLSession.shared.data(from: try XCTUnwrap(URL(string: address)))
+        let vtt = String(decoding: data, as: UTF8.self)
+        note("subtitles: \(data.count) bytes, \(vtt.components(separatedBy: " --> ").count - 1) cues")
+        XCTAssertTrue(vtt.hasPrefix("WEBVTT"), "Not WebVTT: \(vtt.prefix(60))")
+
+        let screen = try XCTUnwrap(PlayerScreen.present(playing), "No window to show the player in")
+        defer { screen.close() }
+        let model = screen.model
+        try await waitUntil(90, "English subtitles selected") { model.shownSubtitleLanguage == "en" }
+        let item = try XCTUnwrap(model.player.currentItem)
+        let loaded = try await item.asset.loadMediaSelectionGroup(for: .legible)
+        let group = try XCTUnwrap(loaded, "No subtitles in the stream")
+        let languages = group.options.map(PlayerModel.languageTag)
+        let selected = item.currentMediaSelection.selectedMediaOption(in: group).map(PlayerModel.languageTag)
+        note("legible options \(languages), selected \(selected ?? "none")")
+        XCTAssertTrue(languages.contains("en"), "No English option: \(languages)")
+        XCTAssertEqual(selected, "en")
+
+        try await waitUntil(60, "playing") { model.player.timeControlStatus == .playing && model.player.currentTime().seconds > 1 }
+        note("playing at \(String(format: "%.1f", model.player.currentTime().seconds)) s")
+
+        // Closing the player stops the core's session: its playlist is gone (410).
+        let master = try XCTUnwrap(URL(string: playing.play.url))
+        screen.close()
+        XCTAssertTrue(screen.isFinished)
+        XCTAssertTrue(model.isClosed)
+        var status = 0
+        for _ in 0..<25 {
+            let (_, response) = try await URLSession.shared.data(from: master)
+            status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 410 { break }
+            try await Task.sleep(nanoseconds: 200_000_000)
+        }
+        note("after closing, the master playlist answers \(status)")
+        XCTAssertEqual(status, 410, "The core's session still plays after the player closed")
+    }
+
     // MARK: Search to play
 
     /// Search, the first title (its default dub, as the app opens it), its last stream (the lightest
     /// quality, easiest on CI's virtual Macs; the UI test plays the first), play.
     @MainActor
-    private func openFirstStream() async throws -> Playing {
+    private func openFirstStream(query asked: String? = nil, subtitles: String? = nil) async throws -> Playing {
         note("data folder: \(core.startedDataDir?.path ?? "?")")
         let version = try await core.version()
         note("core \(version.core), engine \(version.engine), mode \(version.mode)")
 
-        let query = version.mode == "engine" ? "The Lord of the Rings: The Fellowship of the Ring" : "bip bop"
+        let query = asked ?? (version.mode == "engine" ? "The Lord of the Rings: The Fellowship of the Ring" : "bip bop")
         let results = try await core.search(query)
         note("search \"\(query)\": \(results.count) titles: \(results.prefix(5).map { "\($0.title) (\($0.kind), \($0.id))" })")
         let first = try XCTUnwrap(results.first, "Nothing found for \(query)")
@@ -127,9 +175,9 @@ final class PlaybackTests: XCTestCase {
         let stream = try XCTUnwrap(streams.last, "No streams")
         note("playing stream \(stream.index): \(stream.label)")
 
-        let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index)
+        let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index, subtitles: subtitles)
         let play = try await core.play(request)
-        note("play: \(play.kind) \(play.url), session \(play.session)")
+        note("play: \(play.kind) \(play.url), session \(play.session), subtitles \(play.subtitles ?? "none")")
         return Playing(request: request, play: play)
     }
 

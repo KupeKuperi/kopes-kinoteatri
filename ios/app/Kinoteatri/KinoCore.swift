@@ -70,14 +70,47 @@ final class KinoCore: @unchecked Sendable {
     /// One request (see ios/GUIDE.md), e.g. `["op": "search", "query": "Inception"]`; returns the
     /// answer's `value`, or throws the core's error.
     func call<T: Decodable>(_ request: [String: Any]) async throws -> T {
-        let answer = try await send(request)
-        return try Self.decode(T.self, from: answer)
+        try await logged(request) { answer in try Self.decode(T.self, from: answer) }
     }
 
     /// A request whose answer has no value (`stop`).
     func run(_ request: [String: Any]) async throws {
-        let answer = try await send(request)
-        _ = try Self.decodeAnswer(Ignored.self, from: answer)
+        let _: Ignored? = try await logged(request) { answer in try Self.decodeAnswer(Ignored.self, from: answer) }
+    }
+
+    /// `request` and how it went, in the diagnostics log: the op and its ids, never more.
+    private func logged<T>(_ request: [String: Any], _ decode: (Data) throws -> T) async throws -> T {
+        let op = request["op"] as? String ?? "?"
+        let began = Date()
+        Diagnostics.shared.log("→ \(Self.summary(of: request))")
+        do {
+            let answer = try await send(request)
+            let value = try decode(answer)
+            let found = (value as? [Any]).map { ", \($0.count) found" } ?? ""
+            Diagnostics.shared.log("← \(op) ok\(found), \(Self.seconds(since: began))")
+            return value
+        } catch {
+            Diagnostics.shared.log("← \(op) failed, \(Self.seconds(since: began)): \(describe(error))")
+            throw error
+        }
+    }
+
+    /// "play id 123 season 0 episode 0 stream 0 subtitles English"
+    static func summary(of request: [String: Any]) -> String {
+        var parts = [request["op"] as? String ?? "?"]
+        if let query = request["query"] as? String {
+            parts.append("\"\(query.prefix(60))\"")
+        }
+        for key in ["id", "season", "episode", "stream", "subtitles", "session"] {
+            if let value = request[key] {
+                parts.append("\(key) \(value)")
+            }
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private static func seconds(since start: Date) -> String {
+        String(format: "%.1f s", Date().timeIntervalSince(start))
     }
 
     private func send(_ request: [String: Any]) async throws -> Data {
@@ -143,7 +176,9 @@ struct PlayRequest: Hashable {
 
 extension KinoCore {
     func version() async throws -> CoreVersion {
-        try await call(["op": "version"])
+        let version: CoreVersion = try await call(["op": "version"])
+        Diagnostics.shared.log("core \(version.core) · engine \(version.engine) · \(version.mode)")
+        return version
     }
 
     func search(_ query: String) async throws -> [Title] {
@@ -163,7 +198,10 @@ extension KinoCore {
     func play(id: String, season: Int = 0, episode: Int = 0, stream: Int, subtitles: String? = nil) async throws -> Play {
         var request: [String: Any] = ["op": "play", "id": id, "season": season, "episode": episode, "stream": stream]
         if let subtitles { request["subtitles"] = subtitles }
-        return try await call(request)
+        let play: Play = try await call(request)
+        // The URL is the core's own (127.0.0.1); the log keeps its path, not its query.
+        Diagnostics.shared.log("play session \(play.session) (\(play.kind), subtitles \(play.subtitles == nil ? "none" : "found")) \(play.url)")
+        return play
     }
 
     func play(_ request: PlayRequest) async throws -> Play {

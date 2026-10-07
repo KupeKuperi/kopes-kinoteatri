@@ -1,5 +1,6 @@
 // A title: poster, facts, description; for a series a season picker and its episodes; then the
-// streams of the film (or the chosen episode). A stream opens the player. A title with several
+// streams of the film (or the chosen episode). A stream opens the player (full screen,
+// PlayerScreen), with English subtitles when the switch is on (remembered). A title with several
 // dubs opens on the TUI's default one (Original, else English); the Audio list switches dubs.
 
 import SwiftUI
@@ -22,8 +23,11 @@ struct TitleView: View {
     @State private var streamsKey: String?
     /// The stream being started.
     @State private var starting: Int?
-    @State private var playing: Playing?
+    /// Whether this screen is shown (a play that resolves after leaving it isn't opened).
+    @State private var onScreen = false
     @State private var error: String?
+    /// Ask the core for English subtitles with each play (on by default).
+    @AppStorage("englishSubtitles") private var englishSubtitles = true
 
     var body: some View {
         List {
@@ -45,6 +49,14 @@ struct TitleView: View {
                     episodesSection(details)
                 }
                 Section {
+                    Toggle(isOn: $englishSubtitles) {
+                        Label("English subtitles", systemImage: "captions.bubble")
+                    }
+                    .accessibilityIdentifier("english-subtitles")
+                } footer: {
+                    Text("Shown when the film has them; the player's subtitle menu turns them off.")
+                }
+                Section {
                     streamRows
                 } header: {
                     Text(details.isSeries ? "Streams · S\(season) E\(episode)" : "Streams")
@@ -53,9 +65,15 @@ struct TitleView: View {
         }
         .navigationTitle(details?.title ?? title.title)
         .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if starting != nil {
+                StartingView(subtitles: englishSubtitles)
+            }
+        }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
         .task { await loadDetails() }
         .task(id: "\(details?.id ?? "")/\(season)/\(episode)") { await loadStreams() }
-        .fullScreenCover(item: $playing) { PlayerView(playing: $0) }
         .errorAlert($error)
     }
 
@@ -284,12 +302,41 @@ struct TitleView: View {
         guard starting == nil, let details else { return }
         starting = stream.index
         defer { starting = nil }
-        let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index)
+        let subtitles = englishSubtitles ? "English" : nil
+        let request = PlayRequest(id: details.id, season: season, episode: episode, stream: stream.index, subtitles: subtitles)
         do {
             let play = try await KinoCore.shared.play(request)
-            playing = Playing(request: request, play: play)
+            guard onScreen else {
+                // The person left the title while the play was starting.
+                try? await KinoCore.shared.stop(session: play.session)
+                return
+            }
+            PlayerScreen.present(Playing(request: request, play: play))
         } catch {
             self.error = describe(error)
         }
+    }
+}
+
+/// "Starting…" while the core resolves a play (with subtitles: up to ~15 s more).
+private struct StartingView: View {
+    let subtitles: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+            Text("Starting…")
+                .font(.headline)
+            if subtitles {
+                Text("Looking for English subtitles")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 26)
+        .padding(.vertical, 20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("starting")
     }
 }
