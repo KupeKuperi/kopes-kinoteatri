@@ -72,18 +72,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
-
-      # CoreSimulator's start and a simulator's first boot take minutes on these Macs: they run
-      # while the core and the app build.
-      - name: Boot an iPhone simulator (in the background)
-        run: nohup bash scripts/boot-simulator.sh "$RUNNER_TEMP/simulator-udid" > "$RUNNER_TEMP/simulator-boot.log" 2>&1 &
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ios
           # Both iOS targets' dependencies, per core ("core-" keeps it apart from other jobs' keys).
+          # The engine (a path dependency) isn't cached: it's compiled every run.
           key: core-${{ env.KINO_CORE }}
           cache-on-failure: true
+
+      # CoreSimulator's start and a simulator's first boot take minutes on these Macs: they run
+      # while the core and the app build (started after the toolchain and the cache, which they
+      # slow down).
+      - name: Boot an iPhone simulator (in the background)
+        run: nohup bash scripts/boot-simulator.sh "$RUNNER_TEMP/simulator-udid" > "$RUNNER_TEMP/simulator-boot.log" 2>&1 &
 
       - name: Build the core for iOS (${{ env.KINO_CORE }})
         run: |

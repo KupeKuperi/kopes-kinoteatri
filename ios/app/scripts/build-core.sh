@@ -21,13 +21,13 @@ export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-16.0}"
 rustup target add "${targets[@]}"
 
 cd "$ios"
-for target in "${targets[@]}"; do
-  echo "== kino-core ($mode) for $target"
-  # The library only (not the smoke CLI). The note "native-static-libs" lists the system libraries
-  # the static library needs when an app links it (printed when the core is compiled).
-  # shellcheck disable=SC2086 # $features is a list of flags
-  cargo rustc -p kino-core --lib --release --target "$target" $features -- --print native-static-libs
-done
+echo "== kino-core ($mode) for ${targets[*]}"
+# The library only (not the smoke CLI), both targets in one go: the release profile compiles the
+# engine on one core per target, so the two run side by side. The system libraries an app must link
+# for the library are in project.yml; to list them again:
+#   cargo rustc -p kino-core --lib --release --target aarch64-apple-ios -- --print native-static-libs
+# shellcheck disable=SC2086 # $features is a list of flags
+cargo build -p kino-core --lib --release $(printf -- '--target %s ' "${targets[@]}") $features
 
 target_dir="${CARGO_TARGET_DIR:-$ios/target}"
 out="$app/Frameworks/KinoCore.xcframework"
