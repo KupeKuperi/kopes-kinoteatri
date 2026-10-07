@@ -15,3 +15,6 @@ ios/app/Frameworks/
 # Claude Code agent worktrees
 .claude/worktrees/
 ios/out/
+
+# vendored third-party (keep the files, ignore any nested .git)
+vendor/**/.git/
