@@ -27,13 +27,20 @@ AltStore is now on the home screen.
 
 ## Each new version: install Kinoteatri
 
-1. Get `kinoteatri-ipa.zip` (the lead sends the link) and unzip it with the password you were
-   given: inside is `Kinoteatri.ipa`.
-2. Put `Kinoteatri.ipa` on the iPhone: save it to **iCloud Drive** from the PC (or email it to
-   yourself and save the attachment to **Files**).
+1. Get `Kinoteatri.ipa`. On this PC it's ready at `moviebox-gui\ios\out\Kinoteatri.ipa`. (New
+   builds come from GitHub Actions as `Kinoteatri-ipa.zip`, locked with the IPA password, which
+   is in `moviebox-gui\ios\out\ipa-password.txt` on this PC; Windows opens the zip with a
+   double-click and asks for it.)
+2. Put `Kinoteatri.ipa` on the iPhone, in the **Files** app. Easiest ways:
+   - **Telegram:** on the PC, send the file to your own **Saved Messages**; on the iPhone open it
+     there → share button → **Save to Files**.
+   - **iCloud Drive:** copy it into the iCloud Drive folder on the PC (iCloud for Windows, signed
+     in with iCloud Drive on); it appears in Files → iCloud Drive.
+   - **Email:** mail it to yourself; on the iPhone tap the attachment → **Save to Files**.
 3. Open **AltStore → My Apps → +** (top left), pick `Kinoteatri.ipa`. AltStore signs and installs
    it (the PC must be on with AltServer running, same Wi-Fi).
-4. Open **Kinoteatri** from the home screen.
+4. Open **Kinoteatri** from the home screen: search a film, open it, tap a stream. Rotate the
+   phone or use the player's full-screen button for landscape.
 
 Install it from AltStore like this, not with AltServer's "Sideload .ipa…" menu: apps AltStore
 installs renew themselves every week; apps sideloaded from the PC menu must be reinstalled by hand.

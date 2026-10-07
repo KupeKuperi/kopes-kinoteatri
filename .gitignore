@@ -14,3 +14,4 @@ ios/app/Frameworks/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+ios/out/
