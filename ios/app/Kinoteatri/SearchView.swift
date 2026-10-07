@@ -1,5 +1,6 @@
 // Search: a field, then the results (poster, title, year, kind); a result opens its title. The
-// toolbar's About shows the versions and "Copy diagnostics".
+// toolbar's About shows the versions and "Copy diagnostics". The search field lets go of the
+// keyboard once a search is sent and when a title opens (else it can come back over the player).
 
 import SwiftUI
 
@@ -12,6 +13,7 @@ struct SearchView: View {
     @State private var version: CoreVersion?
     @State private var showingAbout = false
     @State private var error: String?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -25,8 +27,13 @@ struct SearchView: View {
             .navigationTitle("Kinoteatri")
             .navigationDestination(for: Title.self) { TitleView(title: $0) }
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Films and series")
+            .searchFocus($searchFocused)
             .autocorrectionDisabled()
-            .onSubmit(of: .search) { Task { await search() } }
+            .onSubmit(of: .search) {
+                endSearchEditing()
+                Task { await search() }
+            }
+            .onDisappear { endSearchEditing() }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -76,6 +83,13 @@ struct SearchView: View {
         }
     }
 
+    /// The search field lets go of the keyboard (SwiftUI's focus, iOS 18+, and UIKit's first
+    /// responder), keeping its text.
+    private func endSearchEditing() {
+        searchFocused = false
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func search() async {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !searching else { return }
@@ -86,6 +100,17 @@ struct SearchView: View {
             searched = text
         } catch {
             self.error = describe(error)
+        }
+    }
+}
+
+extension View {
+    /// `searchFocused` where the system has it (iOS 18).
+    @ViewBuilder func searchFocus(_ focused: FocusState<Bool>.Binding) -> some View {
+        if #available(iOS 18.0, *) {
+            searchFocused(focused)
+        } else {
+            self
         }
     }
 }
