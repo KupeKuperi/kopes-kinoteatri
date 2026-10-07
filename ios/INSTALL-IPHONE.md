@@ -45,6 +45,18 @@ AltStore is now on the home screen.
 Install it from AltStore like this, not with AltServer's "Sideload .ipa…" menu: apps AltStore
 installs renew themselves every week; apps sideloaded from the PC menu must be reinstalled by hand.
 
+## If "Install AltStore" fails
+
+- **"This action cannot be completed at this time (-22411)":** sign in to **iCloud for Windows**
+  (Start → iCloud) with the same Apple ID the iPhone uses (Settings → your name), enter the code
+  the iPhone shows, untick the sync options if you like, then try Install AltStore again with
+  that Apple ID. (Confirmed fix in AltStore's GitHub issues #1720 and #785, 2026.)
+- Click AltServer's icon → **Check for Updates…** first: AltServer fixed an Apple ID sign-in
+  problem in September 2026.
+- After several failed tries in a row Apple blocks sign-ins for a while: wait an hour.
+- The iPhone isn't in the Install AltStore list: unlock it, tap **Trust** on "Trust This
+  Computer?", keep iTunes open.
+
 ## Optional: no PC after the setup (Remote AltServer)
 
 AltServer only runs on a computer, and the first setup above needs one once. After that,
