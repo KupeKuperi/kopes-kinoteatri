@@ -53,13 +53,11 @@ struct TitleView: View {
                         Label("English subtitles", systemImage: "captions.bubble")
                     }
                     .accessibilityIdentifier("english-subtitles")
-                } footer: {
-                    Text("Shown when the film has them; the player's subtitle menu turns them off.")
-                }
-                Section {
                     streamRows
                 } header: {
                     Text(details.isSeries ? "Streams · S\(season) E\(episode)" : "Streams")
+                } footer: {
+                    Text("English subtitles show when the film has them; the player's subtitle menu turns them off.")
                 }
             }
         }

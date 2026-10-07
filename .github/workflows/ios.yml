@@ -212,9 +212,13 @@ jobs:
           [ -d build/KinoteatriTests.xcresult ] || exit 0
           out=build/attachments
           xcrun xcresulttool export attachments --path build/KinoteatriTests.xcresult --output-path "$out" || exit 0
-          # Human names (the export names files by UUID).
+          # Human names (the export names files by UUID), without the characters artifacts refuse
+          # (XCTest's own names can hold quotes and colons).
           jq -r '.[].attachments[] | [.exportedFileName, .suggestedHumanReadableName] | join("|")' "$out/manifest.json" 2> /dev/null |
-            while IFS='|' read -r file name; do [ -n "$name" ] && mv "$out/$file" "$out/$name"; done || true
+            while IFS='|' read -r file name; do
+              [ -n "$name" ] || continue
+              mv "$out/$file" "$out/$(printf '%s' "$name" | tr '"<>:*?/|' '________')"
+            done || true
           ls -la "$out"
           for f in "$out"/summary*; do [ -f "$f" ] && { echo "== $f"; cat "$f"; echo; }; done
 

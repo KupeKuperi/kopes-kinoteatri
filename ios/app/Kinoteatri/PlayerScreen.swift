@@ -9,8 +9,9 @@ import AVKit
 import Combine
 import UIKit
 
+/// AVKit calls its delegate on the main thread, hence `@preconcurrency`.
 @MainActor
-final class PlayerScreen: NSObject, AVPlayerViewControllerDelegate {
+final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelegate {
     /// The play on screen or in picture in picture; one at a time.
     private(set) static var current: PlayerScreen?
 

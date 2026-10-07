@@ -46,7 +46,7 @@ final class ScreensUITests: XCTestCase {
         app.cells.firstMatch.tap()
 
         let stream = element("stream-0")
-        try wait(for: stream, 90, "No streams on the title screen")
+        try scrollTo(stream, 90, "No streams on the title screen")
         let toggle = element("english-subtitles")
         let switchValue = toggle.exists ? String(describing: toggle.value ?? "?") : "missing"
         note("English subtitles switch: \(switchValue)")
@@ -93,9 +93,9 @@ final class ScreensUITests: XCTestCase {
         shot("8-inception-results")
         app.cells.firstMatch.tap()
         let stream = element("stream-0")
-        try wait(for: stream, 90, "No streams for Inception")
+        try scrollTo(stream, 90, "No streams for Inception")
         let toggle = element("english-subtitles")
-        try wait(for: toggle, 10, "No English subtitles switch on the title screen")
+        XCTAssertTrue(toggle.exists, "No English subtitles switch above the streams")
         XCTAssertEqual(toggle.value as? String, "1", "English subtitles should be on by default")
         shot("9-inception-title")
         stream.tap()
@@ -270,6 +270,22 @@ final class ScreensUITests: XCTestCase {
                 attachTree("tree-timeout")
                 throw Failure(description: "\(what) after \(Int(seconds)) s")
             }
+        }
+    }
+
+    /// Swipes the list up until `element` is on screen (a list builds its rows only as they scroll
+    /// in; the streams come after the description and the dubs); waits for it to load meanwhile.
+    private func scrollTo(_ element: XCUIElement, _ seconds: TimeInterval, _ what: String) throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !(element.exists && element.isHittable) {
+            try checkNoAlert()
+            if Date() > deadline {
+                shot("timeout")
+                attachTree("tree-timeout")
+                throw Failure(description: "\(what) after \(Int(seconds)) s")
+            }
+            app.swipeUp()
+            Thread.sleep(forTimeInterval: 1)
         }
     }
 
