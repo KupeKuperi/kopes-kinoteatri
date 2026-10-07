@@ -189,11 +189,30 @@ jobs:
           name: ios-tests-${{ env.KINO_CORE }}
           path: |
             ios/app/build/attachments/
-            ios/app/build/simulator.mp4
             ios/app/build/*.log
             ios/app/build/KinoteatriTests.xcresult/
           if-no-files-found: ignore
           retention-days: 7
+
+      # The recording shows the film playing, so like the .ipa it's only kept password-protected.
+      - name: Password-protect the screen recording
+        id: recording
+        if: ${{ always() && steps.tests.outcome != 'skipped' }}
+        env:
+          IPA_PASSWORD: ${{ secrets.IPA_PASSWORD }}
+        run: |
+          if [ ! -s build/simulator.mp4 ] || [ -z "$IPA_PASSWORD" ]; then exit 0; fi
+          (cd build && zip -q -P "$IPA_PASSWORD" simulator-recording.zip simulator.mp4)
+          echo "zip=ios/app/build/simulator-recording.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the screen recording (password-protected zip, 3 days)
+        if: ${{ always() && steps.recording.outputs.zip != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-recording-${{ env.KINO_CORE }}
+          path: ${{ steps.recording.outputs.zip }}
+          retention-days: 3
+          compression-level: 0
 
       - name: Password-protect the .ipa
         id: ipa

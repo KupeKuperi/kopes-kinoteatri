@@ -146,6 +146,30 @@ CI (`.github/workflows/ios.yml`, public repo so GitHub's Macs are free):
       (LOTR, Inception with English subtitles).
 - [x] Engine bridge + smoke (agent engine): search/details/streams/resolve verified live (LOTR,
       Lanterns S1E1); `kino-smoke --resolve-only` passes
-- [ ] App + CI (agent app): branch `ios-app`, first CI run green (stub mode)
-- [ ] Integration: real engine in the app, CI green end to end (lead)
+- [x] App + CI (agent app): SwiftUI app (search, title with dubs (TUI default Original > English >
+      first), streams, AVPlayer with "Try again" after a failure); CI builds the real engine for
+      both iOS targets (no engine source changes needed) and plays live MovieBox in the Simulator
+- [x] Integration: real engine in the app, CI green end to end (lead) — merged to main 2ec0230
 - [ ] AltStore install guide for the user; user test on the iPhone
+
+## Later (step 2 candidates, not started)
+
+Seen while building step 1; none blocks playback.
+
+- **Subtitles in the app:** the core supports `play … subtitles: "English"` (the HLS master then
+  names the track); the app doesn't ask yet. Needs a picker and, ideally, an op listing the
+  languages a release has.
+- **Georgian UI** like the desktop app (ქარ/ENG).
+- **HLS BANDWIDTH:** AVPlayer logs `-12318 Segment exceeds specified bandwidth` because DASH
+  `@bandwidth` (an average) goes into BANDWIDTH (meant as the peak). Playback doesn't stall; a
+  fix would put it in AVERAGE-BANDWIDTH and declare a higher peak (desktop dash.ts has the same).
+- **Long films:** the CDN cookie lasted ≥ 81 min in a probe (2026-10-07); past its life the app
+  shows "Try again" (fresh cookie, resumes). A server-side re-resolve on 403 would make it
+  seamless.
+- **Caches:** the engine's cache dir is under Application Support (backed up to iCloud); move it
+  to Library/Caches (needs a second dir in `kino_start` or a subfolder convention).
+- **CI time:** the iOS job is ~14 min, 7 of them the core (`lto = true`, `codegen-units = 1`,
+  engine never cached as a path dependency); a CI-only thin-LTO/codegen-units override would cut
+  it.
+- **Real-device checks** CI can't do: background the app mid-play and play again (listener
+  re-bind, TN2277), Picture in Picture, AltStore's weekly refresh.
