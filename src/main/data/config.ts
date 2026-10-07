@@ -2,6 +2,7 @@
 // small GUI-only settings file in Electron's userData folder.
 import fs from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_SCOUT } from '@shared/scout';
 import type { GuiSettings, PlayerName, TuiSettings } from '@shared/types';
 import { configFile } from '../paths';
 
@@ -71,11 +72,13 @@ export function setActiveMode(mode: string): void {
   writeJsonAtomic(configFile('config.json'), raw);
 }
 
-const DEFAULT_GUI: GuiSettings = { binaryPath: '', subtitles: 'English' };
+const DEFAULT_GUI: GuiSettings = { binaryPath: '', subtitles: 'English', scout: DEFAULT_SCOUT };
 
 export function readGuiSettings(userData: string): GuiSettings {
   try {
-    return { ...DEFAULT_GUI, ...JSON.parse(fs.readFileSync(path.join(userData, 'gui-settings.json'), 'utf8')) };
+    const saved = JSON.parse(fs.readFileSync(path.join(userData, 'gui-settings.json'), 'utf8')) as Partial<GuiSettings>;
+    // Settings files from before "Find elsewhere" (or with only some of its keys) get its defaults.
+    return { ...DEFAULT_GUI, ...saved, scout: { ...DEFAULT_SCOUT, ...saved.scout } };
   } catch {
     return { ...DEFAULT_GUI };
   }

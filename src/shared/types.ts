@@ -316,6 +316,26 @@ export interface GuiSettings {
   subtitles: string;
   /** Phone access: phones on the same network open the app in their browser and can watch there. */
   phone?: PhoneSettings;
+  /** "Find elsewhere" links on a title's page. */
+  scout?: ScoutSettings;
+}
+
+/** Groups of "Find elsewhere" links. */
+export type ScoutCategory = 'torrent' | 'streaming' | 'subtitles' | 'usenet' | 'other';
+
+/** "Find elsewhere": links on a title's page that search other sites for it (IMDb Scout Mod's list). */
+export interface ScoutSettings {
+  enabled: boolean;
+  /** Groups to show. */
+  categories: ScoutCategory[];
+  /** Every site at once; otherwise the short list of well-known sites first, the rest a click away. */
+  allSites: boolean;
+  /** A play that starts without subtitles in your language gets some from OpenSubtitles. */
+  autoSubtitles: boolean;
+  /** OpenSubtitles.com API key (free with an account); automatic subtitles need one. */
+  openSubtitlesKey: string;
+  /** Language of those subtitles; '' follows the subtitle setting. */
+  autoSubtitleLanguage: string;
 }
 
 export interface PhoneSettings {

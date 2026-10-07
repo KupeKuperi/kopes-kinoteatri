@@ -144,6 +144,9 @@ export const KA: Record<string, string> = {
   'Which subtitles should load into the player?': 'რომელი სუბტიტრები ჩავრთო პლეერში?',
   'Settings → Playback sets the language picked without asking.': 'პარამეტრები → დაკვრა: იქ აირჩევ ენას, რომელიც კითხვის გარეშე ჩაირთვება.',
   'No subtitles': 'სუბტიტრების გარეშე',
+  'Not the subtitles you want? Look on other sites:': 'სხვა სუბტიტრები გინდა? მოძებნე სხვა საიტებზე:',
+  'There are no {language} ones here. Choose “No subtitles” and {language} subtitles from OpenSubtitles are added to the player.':
+    'აქ {language} სუბტიტრები არ არის. აირჩიე „სუბტიტრების გარეშე“ და {language} სუბტიტრები OpenSubtitles-იდან პლეერს დაემატება.',
 
   // ── Posters ───────────────────────────────────────────────────────────────
   'IMDb rating': 'IMDb-ის რეიტინგი',
@@ -266,6 +269,28 @@ export const KA: Record<string, string> = {
   'Plays without subtitles.': 'ირთვება სუბტიტრების გარეშე.',
   '{language} subtitles load automatically when there are some; otherwise you choose.': 'თუ არსებობს, {language} სუბტიტრები ავტომატურად ჩაირთვება; თუ არა, შენ აირჩევ.',
   Original: 'ორიგინალი',
+  'Find elsewhere': 'მოძებნე სხვაგან',
+  Torrents: 'ტორენტები',
+  Usenet: 'Usenet',
+  Other: 'სხვა',
+  'Matching the title on IMDb…': 'სათაურს IMDb-ზე ვეძებ…',
+  'Show all {n} sites': 'ყველა საიტი ({n})',
+  'Fewer sites': 'ნაკლები საიტი',
+  "IMDb doesn't know this title, so only sites that search by name are listed.": 'IMDb-ზე ეს სათაური ვერ ვიპოვე, ამიტომ ჩანს მხოლოდ საიტები, რომლებიც სახელით ეძებს.',
+  "Searches for this title on other sites, from the IMDb Scout Mod list. They open in your browser; the app doesn't check what each site has.":
+    'ამ სათაურის ძიება სხვა საიტებზე, IMDb Scout Mod-ის სიიდან. იხსნება ბრაუზერში; პროგრამა არ ამოწმებს, რა აქვს თითოეულ საიტს.',
+  'Or find it on another site:': 'ან მოძებნე სხვა საიტზე:',
+  'Search on {site}': '{site}-ზე ძიება',
+  'More sites': 'მეტი საიტი',
+  'Find subtitles': 'სუბტიტრების ძიება',
+  'This source has no subtitles here. Other sites may:': 'ამ წყაროს აქ სუბტიტრები არ აქვს. შეიძლება სხვა საიტებს ჰქონდეთ:',
+  'No {language} subtitles here. Other sites may have them:': '{language} სუბტიტრები აქ არ არის. შეიძლება სხვა საიტებს ჰქონდეთ:',
+  'More subtitle sites': 'მეტი სუბტიტრების საიტი',
+  'When it asks, choose “No subtitles”: {language} subtitles from OpenSubtitles are added to the player.':
+    'როცა გკითხავს, აირჩიე „სუბტიტრების გარეშე“: {language} სუბტიტრები OpenSubtitles-იდან პლეერს დაემატება.',
+  '{language} subtitles from OpenSubtitles are added to the player when you play.': 'ჩართვისას {language} სუბტიტრები OpenSubtitles-იდან პლეერს დაემატება.',
+  'Downloaded a subtitle file? Drag it onto the player window. In VLC you can also use Subtitle → Add Subtitle File.':
+    'სუბტიტრების ფაილს რომ ჩამოტვირთავ, გადაათრიე პლეერის ფანჯარაზე. VLC-ში ასევე შეგიძლია: Subtitle → Add Subtitle File.',
 
   // ── Downloads ─────────────────────────────────────────────────────────────
   'Could not stop the download': 'ჩამოტვირთვა ვერ შეჩერდა',
@@ -365,6 +390,33 @@ export const KA: Record<string, string> = {
   Discard: 'გაუქმება',
   'Save changes': 'ცვლილებების შენახვა',
   'The window speaks Georgian or English. Saved at once.': 'ფანჯრის ენა: ქართული ან ინგლისური. ინახება მაშინვე.',
+  "Links on a title's page that search other sites for it: torrents, streaming services, subtitles and more, from the IMDb Scout Mod list. Saved at once.":
+    'ფილმის გვერდზე ბმულები, რომლებიც მას სხვა საიტებზე ეძებს: ტორენტები, სტრიმინგ-სერვისები, სუბტიტრები და სხვა — IMDb Scout Mod-ის სიიდან. ინახება მაშინვე.',
+  'Show the links': 'ბმულების ჩვენება',
+  "Below the streams on a title's page.": 'ფილმის გვერდზე, ნაკადების ქვემოთ.',
+  'List every site': 'ყველა საიტის ჩვენება',
+  'Otherwise well-known sites come first and the rest are a click away.': 'თუ გამორთულია, ჯერ ცნობილი საიტები ჩანს, დანარჩენი — ერთი დაწკაპებით.',
+  Groups: 'ჯგუფები',
+  'Usenet indexers only answer with an account there.': 'Usenet-ის ინდექსერები მხოლოდ იქ ანგარიშით მუშაობს.',
+  'Add subtitles automatically': 'სუბტიტრების ავტომატური დამატება',
+  'When a play starts without subtitles in your language, the app gets them from OpenSubtitles and VLC or mpv loads them. Turning this on or off restarts the engine.':
+    'როცა ვიდეო შენს ენაზე სუბტიტრების გარეშე ირთვება, პროგრამა მათ OpenSubtitles-იდან იღებს და VLC ან mpv ტვირთავს. ჩართვა ან გამორთვა ძრავს გადატვირთავს.',
+  'Needs an OpenSubtitles API key.': 'საჭიროა OpenSubtitles-ის API გასაღები.',
+  'Off while the subtitle setting is “No subtitles”.': 'გამორთულია, სანამ სუბტიტრების პარამეტრი „სუბტიტრების გარეშე“-ა.',
+  'On: {language} subtitles.': 'ჩართულია: {language} სუბტიტრები.',
+  'Choose their language: “Ask every time” names none.': 'აირჩიე მათი ენა: „ყოველ ჯერზე მკითხე“ ენას არ ასახელებს.',
+  'OpenSubtitles API key': 'OpenSubtitles-ის API გასაღები',
+  'Paste the key here': 'ჩასვი გასაღები აქ',
+  'Get a free key': 'უფასო გასაღების აღება',
+  'OpenSubtitles gives one to anyone with an account (API consumers → New consumer). Without signing in it allows about 10 subtitles a day; the app keeps each one it gets.':
+    'OpenSubtitles მას ნებისმიერ ანგარიშის მქონეს აძლევს (API consumers → New consumer). შესვლის გარეშე დღეში დაახლოებით 10 სუბტიტრს იძლევა; პროგრამა თითოეულს ინახავს.',
+  'Their language': 'მათი ენა',
+  'Same as the subtitle setting': 'როგორც სუბტიტრების პარამეტრში',
+  'No subtitle files kept yet.': 'სუბტიტრების ფაილები ჯერ არ არის შენახული.',
+  'One subtitle file kept · {size}': 'შენახულია 1 სუბტიტრების ფაილი · {size}',
+  '{n} subtitle files kept · {size}': 'შენახულია {n} სუბტიტრების ფაილი · {size}',
+  Clear: 'გასუფთავება',
+  'Could not clear them': 'ვერ წაიშალა',
 
   // ── Add-ons (Settings) ────────────────────────────────────────────────────
   'Add-ons': 'დანამატები',
@@ -469,6 +521,16 @@ export const KA: Record<string, string> = {
   'Could not update favorites': 'რჩეულები ვერ განახლდა',
   'Could not continue': 'ვერ გაგრძელდა',
   'Could not save the subtitle setting': 'სუბტიტრების პარამეტრი ვერ შეინახა',
+  'Could not save the setting': 'პარამეტრი ვერ შეინახა',
+  // Automatic subtitles (main process)
+  'Subtitles added': 'სუბტიტრები დაემატა',
+  'Subtitles from OpenSubtitles load into the player.': 'OpenSubtitles-ის სუბტიტრები პლეერში ჩაიტვირთება.',
+  'No subtitles added': 'სუბტიტრები არ დაემატა',
+  "OpenSubtitles has none in your language for this title. Find subtitles on the title's page lists other sites.":
+    'OpenSubtitles-ს ამ სათაურისთვის შენს ენაზე სუბტიტრები არ აქვს. სათაურის გვერდზე „სუბტიტრების ძიება“ სხვა საიტებს გაჩვენებს.',
+  'OpenSubtitles refused the API key. Check it in Settings → Find elsewhere.': 'OpenSubtitles-მა API გასაღები არ მიიღო. შეამოწმე: პარამეტრები → მოძებნე სხვაგან.',
+  "Today's OpenSubtitles downloads are used up. There are more tomorrow.": 'OpenSubtitles-ის დღევანდელი ჩამოტვირთვები ამოიწურა. ხვალ ისევ იქნება.',
+  "OpenSubtitles didn't answer in time. The video plays without subtitles.": 'OpenSubtitles-მა დროზე არ უპასუხა. ვიდეო სუბტიტრების გარეშე ჩაირთვება.',
   'Resuming {title}': 'გრძელდება: {title}',
   'Could not resume': 'ვერ გაგრძელდა',
 

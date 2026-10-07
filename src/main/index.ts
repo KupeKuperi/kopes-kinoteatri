@@ -5,6 +5,7 @@ import type { EngineEvent } from '@shared/types';
 import { CacheIndex } from './data/cacheIndex';
 import { readGuiSettings } from './data/config';
 import { ImdbService } from './data/imdb';
+import { AutoSubtitles } from './data/scout-subs';
 import { readLibrary, watchLibrary } from './data/library';
 import { EngineManager } from './engine/manager';
 import { handleImageScheme, registerImageScheme } from './images';
@@ -47,6 +48,15 @@ const userData = app.getPath('userData');
 const engine = new EngineManager(new CacheIndex(cacheDir()), () => readGuiSettings(userData), path.join(userData, 'engine.pid'));
 // Chromium's network stack (net.fetch) honours the system proxy settings.
 const imdb = new ImdbService(path.join(userData, 'imdb'), (url) => net.fetch(url));
+let subtitleToasts = 500000;
+const autoSubtitles = new AutoSubtitles(
+  path.join(userData, 'scout-subs'),
+  (url, init) => net.fetch(url, init),
+  () => readGuiSettings(userData),
+  async (title, year, kind) => (await imdb.lookup(title, year, kind))?.id ?? null,
+  (toast) => engine.emit('toast', { ...toast, id: ++subtitleToasts }),
+  `KopesKinoteatri v${app.getVersion()}`,
+);
 
 const toWindow = (event: EngineEvent) => {
   if (win && !win.isDestroyed()) win.webContents.send('mb:event', event);
@@ -118,8 +128,12 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]));
   }
   handleImageScheme();
-  const ipc = registerIpc(engine, imdb, userData, () => win, (url, init) => net.fetch(url, init), { beforePlay: () => phone?.beforePlay() ?? Promise.resolve() });
-  phone = setupPhone({ engine, userData, handlers: ipc.handlers, handle: ipc.handle, rendererDir: path.join(__dirname, '../renderer'), send: toWindow });
+  const ipc = registerIpc(engine, imdb, userData, () => win, (url, init) => net.fetch(url, init), {
+    beforePlay: () => phone?.beforePlay() ?? Promise.resolve(),
+    subtitles: autoSubtitles,
+    refreshStandIns: () => phone?.refreshStandIns() ?? Promise.resolve(),
+  });
+  phone = setupPhone({ engine, userData, handlers: ipc.handlers, handle: ipc.handle, rendererDir: path.join(__dirname, '../renderer'), send: toWindow, subtitles: autoSubtitles });
   forwardEvents(engine, send);
   watchLibrary(tuiDataDir(), () => send({ type: 'library', payload: readLibrary() }));
   createWindow();

@@ -58,6 +58,8 @@ export const CHANNELS = {
 
   settings: 'settings:get',
   saveSettings: 'settings:save',
+  subtitleCache: 'subtitles:cache',
+  clearSubtitleCache: 'subtitles:clear-cache',
 
   phone: 'phone:get',
   setPhone: 'phone:set',

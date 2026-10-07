@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { FolderOpen, Plus, RotateCw, Trash2 } from 'lucide-react';
-import type { AddonInfo, GuiSettings, PlayerName, SettingsBundle, TuiSettings } from '@shared/types';
-import { errorMessage, mb } from '@/lib/api';
+import { autoSubtitleLanguage, SCOUT_CATEGORIES, SCOUT_CATEGORY_NAMES } from '@shared/scout';
+import type { AddonInfo, GuiSettings, PlayerName, ScoutCategory, SettingsBundle, TuiSettings } from '@shared/types';
+import { errorMessage, formatBytes, mb } from '@/lib/api';
 import { q, t, tm, useLang } from '@/lib/i18n';
 import { useStore } from '@/lib/store';
-import { Button, ErrorPanel, Eyebrow, Spinner, Switch, Toggle } from '@/components/ui';
+import { Button, Chip, ErrorPanel, Eyebrow, LinkButton, Spinner, Switch, Toggle } from '@/components/ui';
 import { PhoneAccess } from '@/components/PhoneAccess';
 import { InstallToolButton } from '@/components/Setup';
 import { isWeb } from '@/lib/platform';
@@ -246,6 +247,152 @@ function SubtitleSelect() {
   );
 }
 
+/** "Find elsewhere": links on a title's page, and automatic subtitles. Saved at once. */
+function ScoutGroup() {
+  const scout = useStore((s) => s.scout);
+  const setScout = useStore((s) => s.setScout);
+  // Groups stay in their usual order whichever is turned on last.
+  const toggle = (c: ScoutCategory) =>
+    void setScout({ categories: SCOUT_CATEGORIES.filter((x) => (x === c ? !scout.categories.includes(c) : scout.categories.includes(x))) });
+  return (
+    <Group
+      title="Find elsewhere"
+      note="Links on a title's page that search other sites for it: torrents, streaming services, subtitles and more, from the IMDb Scout Mod list. Saved at once."
+    >
+      <div className="divide-y divide-seam/60">
+        <Toggle label={t('Show the links')} hint={t("Below the streams on a title's page.")} checked={scout.enabled} onChange={(v) => void setScout({ enabled: v })} />
+        {scout.enabled && (
+          <Toggle
+            label={t('List every site')}
+            hint={t('Otherwise well-known sites come first and the rest are a click away.')}
+            checked={scout.allSites}
+            onChange={(v) => void setScout({ allSites: v })}
+          />
+        )}
+      </div>
+      {scout.enabled && (
+        <div className="mt-3">
+          <span className="mb-2 block text-[13px] text-usher">{t('Groups')}</span>
+          <div className="flex flex-wrap gap-2">
+            {SCOUT_CATEGORIES.map((c) => (
+              <Chip key={c} active={scout.categories.includes(c)} onClick={() => toggle(c)}>
+                {t(SCOUT_CATEGORY_NAMES[c])}
+              </Chip>
+            ))}
+          </div>
+          <span className="mt-1.5 block text-[12px] text-dim">{t('Usenet indexers only answer with an account there.')}</span>
+        </div>
+      )}
+      {scout.enabled && <AutoSubtitlesSettings />}
+    </Group>
+  );
+}
+
+/**
+ * Subtitles from OpenSubtitles for plays that start without any in your language. They need the
+ * engine's players to be the app's stand-ins, so turning them on or off restarts the engine.
+ */
+function AutoSubtitlesSettings() {
+  const scout = useStore((s) => s.scout);
+  const subtitles = useStore((s) => s.subtitles);
+  const setScout = useStore((s) => s.setScout);
+  const [key, setKey] = useState(scout.openSubtitlesKey);
+  const saveKey = () => {
+    const trimmed = key.trim();
+    setKey(trimmed);
+    if (trimmed !== scout.openSubtitlesKey) void setScout({ openSubtitlesKey: trimmed });
+  };
+  const language = autoSubtitleLanguage(scout, subtitles);
+  const status = !scout.openSubtitlesKey
+    ? t('Needs an OpenSubtitles API key.')
+    : subtitles === 'off'
+      ? t('Off while the subtitle setting is “No subtitles”.')
+      : language
+        ? t('On: {language} subtitles.', { language: t(language) })
+        : t('Choose their language: “Ask every time” names none.');
+  return (
+    <div className="mt-5 border-t border-seam/60 pt-2">
+      <Toggle
+        label={t('Add subtitles automatically')}
+        hint={t('When a play starts without subtitles in your language, the app gets them from OpenSubtitles and VLC or mpv loads them. Turning this on or off restarts the engine.')}
+        checked={scout.autoSubtitles}
+        onChange={(v) => void setScout({ autoSubtitles: v })}
+      />
+      {scout.autoSubtitles && (
+        <>
+          <div className={`mb-3 text-[12.5px] ${language ? 'text-ok' : 'text-bulb'}`}>{status}</div>
+          <label className="block py-2">
+            <span className="mb-1.5 block text-[13px] text-usher">{t('OpenSubtitles API key')}</span>
+            <span className="flex gap-2">
+              <input
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                onBlur={saveKey}
+                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                placeholder={t('Paste the key here')}
+                spellCheck={false}
+                autoComplete="off"
+                className="h-10 min-w-0 flex-1 rounded-lg border border-seam bg-velvet px-3 font-mono text-[12px] outline-none placeholder:font-sans placeholder:text-[13px] placeholder:text-dim focus:border-bulb/60"
+              />
+              <LinkButton href="https://www.opensubtitles.com/en/consumers">{t('Get a free key')}</LinkButton>
+            </span>
+            <span className="mt-1.5 block text-[12px] leading-relaxed text-dim">
+              {t('OpenSubtitles gives one to anyone with an account (API consumers → New consumer). Without signing in it allows about 10 subtitles a day; the app keeps each one it gets.')}
+            </span>
+          </label>
+          <label className="mt-2 block">
+            <span className="mb-1.5 block text-[13px] text-usher">{t('Their language')}</span>
+            <select
+              value={scout.autoSubtitleLanguage}
+              onChange={(e) => void setScout({ autoSubtitleLanguage: e.target.value })}
+              className="h-10 w-72 max-w-full rounded-lg border border-seam bg-velvet px-3 text-[13.5px] outline-none [color-scheme:dark] focus:border-bulb/60"
+            >
+              <option value="">{t('Same as the subtitle setting')}</option>
+              {SUBTITLE_LANGUAGES.map((l) => (
+                <option key={l} value={l}>
+                  {t(l)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <SubtitleCache />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The subtitle files automatic subtitles keep, and a way to delete them. */
+function SubtitleCache() {
+  const toast = useStore((s) => s.toast);
+  const [info, setInfo] = useState<{ files: number; bytes: number } | null>(null);
+  useEffect(() => {
+    mb.subtitleCache().then(setInfo, () => undefined);
+  }, []);
+  if (!info) return null;
+  return (
+    <div className="mt-3 flex items-center gap-3 text-[12.5px] text-usher">
+      <span>
+        {!info.files
+          ? t('No subtitle files kept yet.')
+          : info.files === 1
+            ? t('One subtitle file kept · {size}', { size: formatBytes(info.bytes) })
+            : t('{n} subtitle files kept · {size}', { n: info.files, size: formatBytes(info.bytes) })}
+      </span>
+      {info.files > 0 && (
+        <Button
+          size="sm"
+          variant="quiet"
+          icon={<Trash2 size={14} />}
+          onClick={() => mb.clearSubtitleCache().then(setInfo, (e) => toast('error', t('Could not clear them'), errorMessage(e)))}
+        >
+          {t('Clear')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /** On a phone: what a phone may change. Everything else is the computer's. */
 function PhoneSettings() {
   return (
@@ -300,7 +447,9 @@ function ComputerSettings() {
   const save = async () => {
     setSaving(true);
     try {
-      const b = await mb.saveSettings({ tui: tui ?? undefined, gui });
+      // Only what this page edits: the subtitle and "Find elsewhere" choices save on their own, and
+      // this page's copy of them is from when it opened.
+      const b = await mb.saveSettings({ tui: tui ?? undefined, gui: { binaryPath: gui.binaryPath } });
       setSaved(b);
       setTui(b.tui);
       setGui(b.gui);
@@ -331,6 +480,8 @@ function ComputerSettings() {
       <Group title="Phone" note="Watch on an iPhone or Android phone, or use it as a remote for this computer.">
         <PhoneAccess />
       </Group>
+
+      <ScoutGroup />
 
       {error && <ErrorPanel title={t("Couldn't read settings")} message={error} />}
       {!tui && !error && <div className="flex items-center gap-2 font-mono text-[12px] text-usher"><Spinner /> {t('Reading config.json…')}</div>}
