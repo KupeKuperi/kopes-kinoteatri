@@ -112,6 +112,9 @@ schemes:
     test:
       config: Debug
       gatherCoverageData: false
+      # No automatic screenshots or screen recordings of failed UI tests: they would show the film
+      # in the public test results (the tests attach their own screenshots).
+      captureScreenshotsAutomatically: false
       targets:
         - name: KinoteatriTests
           parallelizable: false

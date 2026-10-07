@@ -107,9 +107,10 @@ final class ScreensUITests: XCTestCase {
         XCTAssertTrue(options.contains("en"), "No English subtitle option: \(facts(video))")
         // A line on screen for the screenshot (best effort: not every moment has dialogue).
         let line = (try? waitUntil(60, "a subtitle line on screen") { facts(video)["cue"] == "yes" }) != nil
+        shot("10-subtitles")
         note("subtitles: \(facts(video)); a line on screen: \(line)")
         try checkNoAlert()
-        shot("10-subtitles")
+        showPlayerMenu(video)
         try closePlayer(video)
         try wait(for: stream, 30, "Didn't come back to the title from the player")
     }
@@ -179,32 +180,75 @@ final class ScreensUITests: XCTestCase {
 
     /// Closes the player with its own close button. It shows with the player's controls, which
     /// hide while a film plays: a tap on the picture (off the middle, where play/pause is) brings
-    /// them back.
+    /// them back. The button is read from a snapshot and tapped where it was: the controls can
+    /// fade between two questions to XCUITest, and a question about a button gone fails the test.
     private func closePlayer(_ video: XCUIElement) throws {
-        for attempt in 0..<6 {
-            let close = closeButton()
-            if close.exists {
-                if close.isHittable {
-                    note("closing with the player's button \"\(close.label)\" (\(close.identifier)); buttons: \(buttonNames())")
-                    close.tap()
-                    return
-                }
-                if attempt >= 2 {
-                    // Seen but not "hittable" (the controls' glass can read so): tap where it is.
-                    note("close button \"\(close.label)\" not hittable: tapping its place")
-                    close.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-                    if gone(video, within: 3) { return }
-                }
+        for _ in 0..<8 {
+            if !video.exists { return }
+            if let close = try? closeButton().snapshot() {
+                note("closing with the player's button \"\(close.label)\" (\(close.identifier)); buttons: \(buttonNames())")
+                tap(at: close.frame)
+                // If the controls had just faded, that tap only brought them back.
+                if gone(video, within: 2) { return }
+                continue
             }
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.42)).tap()
-            Thread.sleep(forTimeInterval: 1)
+            Thread.sleep(forTimeInterval: 0.8)
         }
         attachTree("player-tree-no-close")
         throw Failure(description: "No close button on the player; buttons: \(buttonNames())")
     }
 
+    /// The player's own menu (More Controls), where its subtitle choice is (the person can turn the
+    /// English subtitles off there): screenshots and the items' names, for the record. Snapshots and
+    /// taps at places only, so it never fails the test.
+    private func showPlayerMenu(_ video: XCUIElement) {
+        for _ in 0..<5 {
+            if !video.exists { return }
+            if let more = try? app.buttons.matching(NSPredicate(format: "identifier == 'Overflow Menu' OR label == 'More Controls'")).firstMatch.snapshot() {
+                tap(at: more.frame)
+                Thread.sleep(forTimeInterval: 1.5)
+                shot("11-player-menu")
+                note("player menu: \(names())")
+                let subtitles = NSPredicate(format: "label CONTAINS[c] 'subtitle' OR label CONTAINS[c] 'caption'")
+                if let item = try? app.descendants(matching: .any).matching(subtitles).firstMatch.snapshot() {
+                    tap(at: item.frame)
+                    Thread.sleep(forTimeInterval: 1.5)
+                    shot("12-player-subtitles-menu")
+                    note("subtitles menu: \(names())")
+                }
+                // Away from the menu, which closes it.
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
+                Thread.sleep(forTimeInterval: 1)
+                return
+            }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.42)).tap()
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        note("player menu: no More Controls button")
+    }
+
+    private func tap(at frame: CGRect) {
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+    }
+
+    /// Labels on screen now (one snapshot): buttons, menu items, texts and switches.
+    private func names() -> [String] {
+        guard let root = try? app.snapshot() else { return [] }
+        let kinds: [XCUIElement.ElementType] = [.button, .menuItem, .staticText, .switch, .cell]
+        var names: [String] = []
+        func walk(_ node: XCUIElementSnapshot) {
+            if kinds.contains(node.elementType), !node.label.isEmpty {
+                names.append("\(node.label)\(node.isSelected ? " (selected)" : "")")
+            }
+            node.children.forEach(walk)
+        }
+        walk(root)
+        return names
+    }
+
     private func closeButton() -> XCUIElement {
-        let names = ["Close", "Done", "Dismiss"]
+        let names = ["Close", "Done", "Dismiss", "Close Button"]
         let predicate = NSPredicate(
             format: "label IN[c] %@ OR identifier IN[c] %@ OR label BEGINSWITH[c] 'close' OR label BEGINSWITH[c] 'dismiss'",
             names, names
@@ -212,8 +256,18 @@ final class ScreensUITests: XCTestCase {
         return app.buttons.matching(predicate).firstMatch
     }
 
+    /// The buttons on screen now, "label [identifier]" (from one snapshot).
     private func buttonNames() -> [String] {
-        app.buttons.allElementsBoundByIndex.map { "\($0.label) [\($0.identifier)]" }
+        guard let root = try? app.snapshot() else { return [] }
+        var names: [String] = []
+        func walk(_ node: XCUIElementSnapshot) {
+            if node.elementType == .button {
+                names.append("\(node.label) [\(node.identifier)]")
+            }
+            node.children.forEach(walk)
+        }
+        walk(root)
+        return names
     }
 
     private func gone(_ element: XCUIElement, within seconds: TimeInterval) -> Bool {
@@ -233,7 +287,7 @@ final class ScreensUITests: XCTestCase {
 
     /// The player's own description (KINO_UI_TEST): "player=0,0,402x874; window=402x874; …".
     private func facts(_ video: XCUIElement) -> [String: String] {
-        guard video.exists, let value = video.value as? String else { return [:] }
+        guard let snapshot = try? video.snapshot(), let value = snapshot.value as? String else { return [:] }
         var facts: [String: String] = [:]
         for part in value.components(separatedBy: "; ") {
             let pair = part.split(separator: "=", maxSplits: 1).map(String.init)

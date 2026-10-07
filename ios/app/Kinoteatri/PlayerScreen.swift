@@ -44,7 +44,8 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         let screen = PlayerScreen(playing: playing, startAt: startAt)
         current = screen
         screen.model.start()
-        Diagnostics.shared.log("player: full screen, session \(playing.play.session)")
+        let pictureInPicture = AVPictureInPictureController.isPictureInPictureSupported() ? "supported" : "not supported"
+        Diagnostics.shared.log("player: full screen, session \(playing.play.session), picture in picture \(pictureInPicture)")
         top.present(screen.controller, animated: true)
         return screen
     }

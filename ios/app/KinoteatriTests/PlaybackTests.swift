@@ -111,6 +111,8 @@ final class PlaybackTests: XCTestCase {
         let screen = try XCTUnwrap(PlayerScreen.present(playing), "No window to show the player in")
         defer { screen.close() }
         let model = screen.model
+        XCTAssertTrue(screen.controller.allowsPictureInPicturePlayback)
+        note("picture in picture: \(AVPictureInPictureController.isPictureInPictureSupported() ? "supported" : "not supported") here")
         try await waitUntil(90, "English subtitles selected") { model.shownSubtitleLanguage == "en" }
         let item = try XCTUnwrap(model.player.currentItem)
         let loaded = try await item.asset.loadMediaSelectionGroup(for: .legible)

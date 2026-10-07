@@ -219,6 +219,13 @@ jobs:
               [ -n "$name" ] || continue
               mv "$out/$file" "$out/$(printf '%s' "$name" | tr '"<>:*?/|' '________')"
             done || true
+          # A video of the screen shows the film: never in the public results (the recording above
+          # is kept password-protected instead).
+          if find "$out" build/KinoteatriTests.xcresult -type f \( -iname '*.mp4' -o -iname '*.mov' \) | grep -q .; then
+            echo "::warning::The test results held a screen recording; it and the .xcresult are left out."
+            find "$out" -type f \( -iname '*.mp4' -o -iname '*.mov' \) -delete
+            rm -rf build/KinoteatriTests.xcresult
+          fi
           ls -la "$out"
           for f in "$out"/summary*; do [ -f "$f" ] && { echo "== $f"; cat "$f"; echo; }; done
 
