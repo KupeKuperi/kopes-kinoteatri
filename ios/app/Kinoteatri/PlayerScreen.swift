@@ -21,7 +21,7 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
     static let describesItself = ProcessInfo.processInfo.environment["KINO_UI_TEST"] == "1"
 
     let model: PlayerModel
-    let controller = AVPlayerViewController()
+    let controller = KinoPlayerViewController()
     private let onClosed: (PlayerScreen) -> Void
     private let status = PlayerStatusView()
     private let probe = PlayerProbeView()
@@ -58,6 +58,9 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         let pictureInPicture = AVPictureInPictureController.isPictureInPictureSupported() ? "supported" : "not supported"
         Diagnostics.shared.log("player: full screen, session \(model.session), picture in picture \(pictureInPicture), landscape lock \(Preferences.landscapeLock ? "on" : "off")")
+        // The app lets the player turn before it's presented (a landscape-only player over a
+        // portrait-only app would be refused).
+        Orientation.player()
         top.present(screen.controller, animated: true) {
             screen.turn()
         }
@@ -69,6 +72,7 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         self.onClosed = onClosed
         super.init()
         controller.player = model.player
+        controller.allowedOrientations = Preferences.landscapeLock ? .landscape : .allButUpsideDown
         controller.delegate = self
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = true
@@ -107,7 +111,7 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
     /// The player's turn: sideways with the landscape lock, else with the phone.
     private func turn() {
         guard !isFinished, !inPictureInPicture else { return }
-        Orientation.player(locked: Preferences.landscapeLock)
+        Orientation.turn(controller, to: controller.allowedOrientations)
     }
 
     /// Closes the player as its close button does.
@@ -135,12 +139,13 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         isFinished = true
         closeCheck?.cancel()
         subscriptions.removeAll()
+        if controller.presentingViewController != nil, !controller.isBeingDismissed {
+            controller.dismiss(animated: false)
+        }
+        // Portrait again once the player is gone (not while it's still presented).
         if Self.current === self {
             Self.current = nil
             Orientation.browsing()
-        }
-        if controller.presentingViewController != nil, !controller.isBeingDismissed {
-            controller.dismiss(animated: false)
         }
         return true
     }
@@ -153,6 +158,11 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
             restoring = false
             status.bringToFront()
         } else {
+            // Into picture in picture: the app shows under the small player, so browsing turns
+            // as browsing does.
+            if inPictureInPicture {
+                Orientation.browsing()
+            }
             checkClosed(after: 0.4)
         }
     }
@@ -186,8 +196,6 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
 
     func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
         inPictureInPicture = true
-        // The app shows under the small player: browsing turns as browsing does.
-        Orientation.browsing()
         Diagnostics.shared.log("player: picture in picture")
     }
 
@@ -221,6 +229,7 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         }
         restoring = true
         Diagnostics.shared.log("player: back from picture in picture")
+        Orientation.player()
         top.present(controller, animated: true) { [weak self] in
             completionHandler(true)
             self?.inPictureInPicture = false
@@ -242,6 +251,9 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
             "window=\(Self.text(window.bounds.size))",
             "video=\(Self.text(controller.videoBounds))",
             "orientation=\(landscape ? "landscape" : "portrait")",
+            "mask=\(Orientation.name(controller.supportedInterfaceOrientations))",
+            "app=\(Orientation.name(Orientation.allowed))",
+            "asked=\(Orientation.asked)",
             "subtitles=\(model.shownSubtitleLanguage ?? "off")",
             "options=\(model.subtitleOptions.joined(separator: ","))",
             "cue=\(model.cueShowing ? "yes" : "no")",

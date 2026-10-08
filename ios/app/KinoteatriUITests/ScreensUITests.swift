@@ -107,6 +107,13 @@ final class ScreensUITests: XCTestCase {
         try wait(for: element("home-favorite-0"), 5, "Nothing in Favorites after the heart")
         note("continue watching: \(element("continue-0").label)")
         shot("8-home")
+
+        // Browsing is portrait: the phone turned sideways leaves Home upright (for the record).
+        XCUIDevice.shared.orientation = .landscapeLeft
+        Thread.sleep(forTimeInterval: 2)
+        note("home with the phone sideways: window \(app.windows.firstMatch.frame)")
+        shot("8b-home-phone-sideways")
+        XCUIDevice.shared.orientation = .portrait
     }
 
     /// English subtitles are on by default and the player shows them by itself: Inception (English

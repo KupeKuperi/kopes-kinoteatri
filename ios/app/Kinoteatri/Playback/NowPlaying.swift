@@ -12,11 +12,13 @@ enum NowPlaying {
 
     /// The info for `info` playing in `player`.
     static func info(for info: PlayInfo, elapsed: Double, rate: Float, duration: Double?) -> [String: Any] {
+        // A Double either way (in an `Any` dictionary a bare 0 would be an Int).
+        let position: Double = elapsed.isFinite ? max(0, elapsed) : 0
         var now: [String: Any] = [
             MPMediaItemPropertyTitle: info.title.title,
             MPMediaItemPropertyArtist: info.subtitleLine,
             MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.video.rawValue,
-            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed.isFinite ? max(0, elapsed) : 0,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
             MPNowPlayingInfoPropertyPlaybackRate: Double(rate),
             MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
         ]
