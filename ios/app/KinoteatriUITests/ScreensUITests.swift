@@ -1,9 +1,11 @@
-// The app's own screens, used as a person would. Search, open the first title, play its first
-// stream (with the engine: the best quality) full screen; turn the phone to landscape: the player
-// fills the window; back to portrait; close with the player's own button: back on the title.
-// English subtitles (on by default) show by themselves in Inception. About copies the diagnostics.
+// The app's own screens, used as a person would. Settings shows the engine's version and copies the
+// diagnostics. Search finds the title; the first result opens it; the heart makes it a favorite;
+// its first stream (with the engine: the best quality) plays full screen, sideways by itself ("Play
+// in landscape", on by default) and still sideways when the phone turns back upright; the player's
+// own close button brings back the title. Home then has the film in Continue watching and in
+// Favorites. Subtitles (English, on by default) show by themselves in Inception.
 // Keeps a screenshot of each screen (CI exports them from the .xcresult). Works with either core:
-// it reads the mode off the search screen.
+// it reads the mode off Settings. Each launch starts with an empty library (KINO_UI_TEST).
 
 import XCTest
 
@@ -22,7 +24,8 @@ final class ScreensUITests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
-        // The player describes itself (frame, orientation, subtitles) to the tests: "player-video".
+        // The player describes itself (frame, orientation, subtitles) to the tests: "player-video";
+        // the library starts empty.
         app.launchEnvironment["KINO_UI_TEST"] = "1"
     }
 
@@ -39,20 +42,27 @@ final class ScreensUITests: XCTestCase {
     func testSearchOpenPlayFullScreenClose() throws {
         summary = "summary-ui-fullscreen"
         app.launch()
+        try wait(for: element("home-search"), 30, "Home didn't show")
+        shot("0-home-empty")
         let engine = try waitForCore()
-        shot("1-search")
-        try checkAbout()
+        try checkCopyDiagnostics()
 
         try search(engine ? "The Lord of the Rings: The Fellowship of the Ring" : "bip bop")
         shot("2-results")
-        app.cells.firstMatch.tap()
+        element("result-0").tap()
+
+        // The heart, near the top: the title becomes a favorite.
+        let favorite = element("favorite")
+        try wait(for: favorite, 30, "No heart on the title screen")
+        favorite.tap()
+        try waitUntil(5, "the title in favorites") { (favorite.value as? String) == "1" }
+        shot("3-title")
 
         let stream = element("stream-0")
         try scrollTo(stream, 90, "No streams on the title screen")
-        let toggle = element("english-subtitles")
-        let switchValue = toggle.exists ? String(describing: toggle.value ?? "?") : "missing"
-        note("English subtitles switch: \(switchValue)")
-        shot("3-title")
+        let toggle = element("subtitles")
+        note("subtitles switch: \(toggle.exists ? String(describing: toggle.value ?? "?") : "missing")")
+        shot("3b-streams")
         stream.tap()
 
         let video = element("player-video")
@@ -60,15 +70,17 @@ final class ScreensUITests: XCTestCase {
         // Let it play a little (a film may open in the dark).
         Thread.sleep(forTimeInterval: 7)
         try checkNoAlert()
-        shot("4-player-portrait")
-        attachTree("player-tree-portrait")
-        try checkFillsWindow(video, landscape: false)
+        // Play in landscape (on by default): sideways while the phone is still upright.
+        try waitUntil(20, "the player sideways by itself") { facts(video)["orientation"] == "landscape" }
+        Thread.sleep(forTimeInterval: 1)
+        shot("4-player-landscape")
+        attachTree("player-tree-landscape")
+        try checkFillsWindow(video, landscape: true)
 
         XCUIDevice.shared.orientation = .landscapeLeft
-        try waitUntil(20, "the player in landscape") { facts(video)["orientation"] == "landscape" }
         Thread.sleep(forTimeInterval: 3)
         try checkNoAlert()
-        shot("5-player-landscape")
+        shot("5-player-phone-sideways")
         // The whole screen too: the app's screenshot can draw a playing video sideways in
         // landscape (the screen recording shows it right).
         let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -77,15 +89,24 @@ final class ScreensUITests: XCTestCase {
         add(screen)
         try checkFillsWindow(video, landscape: true)
 
+        // Upright again: the lock keeps the player sideways.
         XCUIDevice.shared.orientation = .portrait
-        try waitUntil(20, "the player in portrait again") { facts(video)["orientation"] == "portrait" }
-        Thread.sleep(forTimeInterval: 1)
-        shot("6-player-portrait-again")
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(facts(video)["orientation"], "landscape", "The player turned upright with the landscape lock on: \(facts(video))")
+        shot("6-player-locked")
         try closePlayer(video)
 
         try wait(for: stream, 30, "Didn't come back to the title from the player")
         try checkNoAlert()
+        Thread.sleep(forTimeInterval: 1)
         shot("7-closed")
+
+        // Home: the film in Continue watching, and in Favorites.
+        openTab("Home")
+        try wait(for: element("continue-0"), 15, "Nothing in Continue watching after playing")
+        try wait(for: element("home-favorite-0"), 5, "Nothing in Favorites after the heart")
+        note("continue watching: \(element("continue-0").label)")
+        shot("8-home")
     }
 
     /// English subtitles are on by default and the player shows them by itself: Inception (English
@@ -99,12 +120,12 @@ final class ScreensUITests: XCTestCase {
 
         try search("Inception")
         shot("8-inception-results")
-        app.cells.firstMatch.tap()
+        element("result-0").tap()
         let stream = element("stream-0")
         try scrollTo(stream, 90, "No streams for Inception")
-        let toggle = element("english-subtitles")
-        XCTAssertTrue(toggle.exists, "No English subtitles switch above the streams")
-        XCTAssertEqual(toggle.value as? String, "1", "English subtitles should be on by default")
+        let toggle = element("subtitles")
+        XCTAssertTrue(toggle.exists, "No subtitles switch above the streams")
+        XCTAssertEqual(toggle.value as? String, "1", "Subtitles should be on by default")
         shot("9-inception-title")
         stream.tap()
         // "Starting…" while the core resolves the play and looks for the subtitles (best effort).
@@ -130,34 +151,48 @@ final class ScreensUITests: XCTestCase {
 
     // MARK: Steps
 
-    /// Waits for the core's version on the search screen; true with the real engine.
+    /// The engine's line in Settings once the core answered; true with the real engine.
     private func waitForCore() throws -> Bool {
+        openTab("Settings")
         let version = element("core-version")
-        try wait(for: version, 60, "The core didn't start (no version on the search screen)")
+        try scrollTo(version, 30, "No engine line in Settings")
+        try waitUntil(60, "the core's version in Settings") { version.label.hasPrefix("core ") }
         note("core: \(version.label)")
+        shot("1-settings")
         return version.label.hasSuffix("engine")
     }
 
-    /// About (the search screen's toolbar): Copy diagnostics, then Done.
-    private func checkAbout() throws {
-        let about = app.buttons.matching(NSPredicate(format: "identifier == 'about' OR label == 'About'")).firstMatch
-        try wait(for: about, 10, "No About button on the search screen")
-        about.tap()
+    /// Settings' Copy diagnostics says Copied.
+    private func checkCopyDiagnostics() throws {
         let copy = element("copy-diagnostics")
-        try wait(for: copy, 10, "No Copy diagnostics in About")
+        try scrollTo(copy, 15, "No Copy diagnostics in Settings")
         copy.tap()
         try waitUntil(5, "\"Copied\"") { copy.label.contains("Copied") }
-        shot("1b-about")
-        element("about-done").tap()
-        try waitUntil(10, "About closed") { !copy.exists }
+        shot("1b-copied")
     }
 
     private func search(_ text: String) throws {
+        openTab("Search")
         let field = app.searchFields.firstMatch
         try wait(for: field, 10, "No search field")
         field.tap()
         field.typeText(text + "\n")
-        try wait(for: app.cells.firstMatch, 90, "No search results for \(text)")
+        try wait(for: element("result-0"), 90, "No search results for \(text)")
+    }
+
+    /// A tab of the tab bar, by its name.
+    private func openTab(_ name: String) {
+        let tab = app.tabBars.buttons[name]
+        if tab.waitForExistence(timeout: 5) {
+            tab.tap()
+            return
+        }
+        let button = app.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
+        if button.waitForExistence(timeout: 5) {
+            button.tap()
+        } else {
+            note("no tab \(name); buttons: \(buttonNames())")
+        }
     }
 
     /// The player covers the window, as XCUITest sees it and as the app reports it; in landscape
