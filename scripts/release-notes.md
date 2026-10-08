@@ -1,8 +1,7 @@
-**New in 1.2:**
+**New in 1.3:**
 
-- **ქართული.** The whole window speaks Georgian (switch with **ქარ / ENG** in the top bar, or Settings → Language).
-- **Watch on your phone.** Settings → Phone → turn on Phone access, then scan the QR code with an iPhone or Android phone on the same Wi-Fi. Titles play on the phone, or on the computer with one tap.
-- **More sources.** Settings → Add-ons takes Stremio add-on links; their streams appear when the source is Addons.
+- **Find elsewhere.** A title's page links to searches for it on torrent, streaming and subtitle sites (the [IMDb Scout Mod](https://github.com/Purfview/IMDb-Scout-Mod) site list). When a source has no streams, the page offers the app's other sources and those searches.
+- **Subtitles from elsewhere.** When a title lacks subtitles in your language, its page lists subtitle sites. With a free OpenSubtitles API key (Settings → Find elsewhere), VLC or mpv gets them from OpenSubtitles automatically.
 
 **Windows 10/11:** download **KopesKinoteatri-Setup.exe** and run it. It installs for your user, without admin rights. If Windows says *"Windows protected your PC"*, click **More info → Run anyway**: the installer isn't code-signed.
 

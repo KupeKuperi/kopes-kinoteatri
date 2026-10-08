@@ -13,9 +13,11 @@ import type {
   LibrarySnapshot,
   ResultItem,
   ResultsView,
+  ScoutSettings,
   SubtitleChoice,
   Toast,
 } from '@shared/types';
+import { DEFAULT_SCOUT } from '@shared/scout';
 import { errorMessage, mb } from './api';
 import { q, t, tm } from './i18n';
 import { deviceId, isWeb } from './platform';
@@ -64,6 +66,8 @@ interface State {
   subtitleChoice: SubtitleChoice | null;
   /** The subtitle setting: a language, 'off' or 'ask'. */
   subtitles: string;
+  /** "Find elsewhere" links on a title's page. */
+  scout: ScoutSettings;
 
   details: DetailsView | null;
   detailsLoading: Pending | null;
@@ -89,7 +93,7 @@ interface State {
   openResult(item: ResultItem): Promise<void>;
   openTitle(ref: TitleRef & { cover?: string }): Promise<void>;
   openFavorite(f: FavoriteEntry): Promise<void>;
-  /** Switches to `source` and opens the title that wasn't found on the previous one. */
+  /** Switches to `source` and opens the title that wasn't found (or had no streams) on the previous one. */
   retryTitleOn(source: string): Promise<void>;
   /** Re-reads the list of sources (after settings changed which are enabled). */
   reloadSources(): Promise<void>;
@@ -111,6 +115,7 @@ interface State {
   /** Answers the subtitle question: option index, or -1 to cancel the play or download. */
   chooseSubtitle(index: number): Promise<void>;
   setSubtitles(preference: string): Promise<void>;
+  setScout(patch: Partial<ScoutSettings>): Promise<void>;
 }
 
 export interface ResultsRequest {
@@ -219,6 +224,7 @@ export const useStore = create<State>((set, get) => ({
   detailsNotFound: null,
   subtitleChoice: null,
   subtitles: 'English',
+  scout: DEFAULT_SCOUT,
   setupStep: null,
 
   go(route) {
@@ -313,7 +319,7 @@ export const useStore = create<State>((set, get) => ({
       if (get().status?.state === 'ready') void loadEngineData();
     });
     void mb.library().then((library) => set({ library }));
-    void mb.settings().then((b) => set({ subtitles: b.gui.subtitles }), () => undefined);
+    void mb.settings().then((b) => set({ subtitles: b.gui.subtitles, scout: { ...DEFAULT_SCOUT, ...b.gui.scout } }), () => undefined);
     return off;
   },
 
@@ -392,9 +398,15 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async retryTitleOn(source) {
-    const miss = get().detailsNotFound;
-    if (!miss) return;
-    if (await get().setProvider(source, { stay: true })) await get().openTitle(miss.ref);
+    const open = get().details;
+    const ref =
+      get().detailsNotFound?.ref ??
+      (open?.info ? { title: open.state.title || open.info.title, year: open.info.year, cover: open.info.cover } : null);
+    if (!ref) return;
+    // Switching drops the open title: show it as opening meanwhile rather than "Nothing is open".
+    if (open) set({ detailsLoading: { title: ref.title, cover: ref.cover, year: ref.year } });
+    if (await get().setProvider(source, { stay: true })) await get().openTitle(ref);
+    else set({ detailsLoading: null });
   },
 
   async reloadSources() {
@@ -456,6 +468,17 @@ export const useStore = create<State>((set, get) => ({
     } catch (e) {
       set({ subtitles: previous });
       get().toast('error', t('Could not save the subtitle setting'), errorMessage(e));
+    }
+  },
+  async setScout(patch) {
+    const previous = get().scout;
+    const scout = { ...previous, ...patch };
+    set({ scout });
+    try {
+      await mb.saveSettings({ gui: { scout } });
+    } catch (e) {
+      set({ scout: previous });
+      get().toast('error', t('Could not save the setting'), errorMessage(e));
     }
   },
   download: (scope, target) => get().detailsAction(t('Starting download…'), t('Could not start the download'), () => mb.download(scope, target)),

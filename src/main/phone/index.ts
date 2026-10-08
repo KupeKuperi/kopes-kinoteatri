@@ -1,5 +1,6 @@
 // Phone access, put together: settings (on/off, port, pairing key), the server phones open, the
-// player stand-in the engine starts while it is on, and the relay between them.
+// player stand-in the engine starts while it is on, and the relay between them. Automatic
+// subtitles use the same stand-in to add a subtitle file to the computer's player.
 import crypto from 'node:crypto';
 import path from 'node:path';
 import type { EngineEvent, HistoryEntry, PhoneSettings } from '@shared/types';
@@ -7,6 +8,7 @@ import { detectPlayers } from '../binary';
 import { readGuiSettings, readTuiSettings, writeGuiSettings } from '../data/config';
 import type { EngineManager } from '../engine/manager';
 import { PlayerBridge } from './bridge';
+import type { PlayerLaunch } from './launch';
 import { Relay } from './relay';
 import { PhoneServer, type Handler } from './server';
 
@@ -18,6 +20,8 @@ export interface Phone {
   beforePlay(): Promise<void>;
   /** Starts what phone access needs (call before the engine starts: its environment depends on it). */
   start(): Promise<void>;
+  /** After automatic subtitles were turned on or off: gives the engine (or takes back) the stand-ins. */
+  refreshStandIns(): Promise<void>;
   broadcast(event: EngineEvent): void;
   stop(): void;
 }
@@ -29,6 +33,8 @@ export function setupPhone(opts: {
   handle: (channel: string, fn: Handler) => void;
   rendererDir: string;
   send: (event: EngineEvent) => void;
+  /** Automatic subtitles: whether they need the stand-ins, and what they add to a launch. */
+  subtitles?: { wanted(): boolean; attach(launch: PlayerLaunch, args: string[]): Promise<string[] | null> };
 }): Phone {
   const { engine, userData, handle } = opts;
 
@@ -52,7 +58,15 @@ export function setupPhone(opts: {
 
   const relay = new Relay();
   const bridge = new PlayerBridge(path.join(userData, 'phone'));
-  bridge.onLaunch = relay.decide;
+  // A phone that asked for this play gets it; otherwise the computer's player starts, with a
+  // subtitle file added when automatic subtitles found one.
+  bridge.onLaunch = async (launch, args) => {
+    const phone = relay.decide(launch);
+    if (phone) return phone;
+    const withSubtitles = await opts.subtitles?.attach(launch, args);
+    return withSubtitles ? { args: withSubtitles } : null;
+  };
+  const subtitlesWanted = () => opts.subtitles?.wanted() ?? false;
   const server = new PhoneServer({
     rendererDir: opts.rendererDir,
     handlers: opts.handlers,
@@ -73,20 +87,32 @@ export function setupPhone(opts: {
     broadcast(event);
   });
 
-  // While phone access is on, the engine's players are the stand-ins (the real ones still play
-  // everything the computer starts). With no player installed, a phone can still watch.
+  // While phone access or automatic subtitles are on, the engine's players are the stand-ins (the
+  // real ones still play everything the computer starts). With no player installed, a phone can
+  // still watch. `engineStandIns`: whether the running engine was started wanting them.
+  let engineStandIns = false;
   engine.extraEnv = () => {
-    if (!settings().enabled) return {};
+    const phoneOn = settings().enabled;
+    engineStandIns = phoneOn || subtitlesWanted();
+    if (!engineStandIns) return {};
     const tui = readTuiSettings();
     const found = detectPlayers({ vlc: tui?.vlcPath, mpv: tui?.mpvPath, iina: tui?.iinaPath });
-    return bridge.engineEnv(found.vlc || found.mpv ? { vlc: found.vlc, mpv: found.mpv } : { vlc: '', mpv: null });
+    if (found.vlc || found.mpv) return bridge.engineEnv({ vlc: found.vlc, mpv: found.mpv });
+    return phoneOn ? bridge.engineEnv({ vlc: '', mpv: null }) : {};
   };
 
   const start = async () => {
     const s = settings();
-    if (!s.enabled) return;
-    await bridge.start();
-    await server.start(s.port);
+    if (s.enabled || subtitlesWanted()) await bridge.start();
+    if (s.enabled) await server.start(s.port);
+  };
+
+  const refreshStandIns = async () => {
+    const want = settings().enabled || subtitlesWanted();
+    if (want) await bridge.start();
+    // The engine picks its players when it starts.
+    if (want !== engineStandIns) await engine.restart();
+    if (!want) bridge.stop();
   };
 
   const beforePlay = () => relay.endAll();
@@ -124,7 +150,7 @@ export function setupPhone(opts: {
       else {
         await relay.endAll();
         server.stop();
-        bridge.stop();
+        if (!subtitlesWanted()) bridge.stop();
       }
       // The engine picks its player when it starts: give it (or take back) the stand-ins.
       await engine.restart();
@@ -141,6 +167,7 @@ export function setupPhone(opts: {
     relay,
     beforePlay,
     start,
+    refreshStandIns,
     broadcast,
     stop() {
       server.stop();

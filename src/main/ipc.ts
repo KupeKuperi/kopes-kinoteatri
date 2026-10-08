@@ -8,6 +8,7 @@ import { addAddon, addonViews, enableAddon, ENGINE_STREAM_WAIT_SECONDS, fetchAdd
 import { readGuiSettings, readTuiSettings, writeGuiSettings, writeTuiSettings } from './data/config';
 import { deleteUnfinished, listDownloads } from './data/downloads';
 import { listLabel, listMinVotes, type ImdbListKind, type ImdbService } from './data/imdb';
+import type { AutoSubtitles, PlayRequest } from './data/scout-subs';
 import { readLibrary } from './data/library';
 import { suggestTitles, type KnownTitle } from './data/suggest';
 import { readPlaylistSources, readTv } from './data/tv';
@@ -27,9 +28,28 @@ export function registerIpc(
   userData: string,
   getWindow: () => BrowserWindow | null,
   fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
-  hooks: { beforePlay: () => Promise<void> } = { beforePlay: async () => undefined },
+  hooks: {
+    beforePlay: () => Promise<void>;
+    /** Automatic subtitles: told about each play from the computer. */
+    subtitles?: AutoSubtitles;
+    /** After they were turned on or off (the engine's players may have to change). */
+    refreshStandIns?: () => Promise<void>;
+  } = { beforePlay: async () => undefined },
 ): { handlers: Map<string, Handler>; handle: (channel: string, fn: Handler) => void } {
   const driver = () => engine.requireDriver();
+  /** The title on the engine's details screen, as automatic subtitles look it up. */
+  const playing = (): PlayRequest | null => {
+    const view = engine.driver?.peekDetails();
+    if (!view?.info) return null;
+    return {
+      title: view.state.title || view.info.title,
+      year: view.info.year,
+      kind: view.info.kind,
+      season: view.current?.season,
+      episode: view.current?.episode,
+      sourceLanguages: view.captions.map((c) => c.language),
+    };
+  };
   const handlers = new Map<string, Handler>();
   const handle = (channel: string, fn: Handler) => {
     handlers.set(channel, fn);
@@ -141,6 +161,7 @@ export function registerIpc(
   // A phone still watching holds the engine's player: it gives way to a new play.
   handle('play', async (i: number) => {
     await hooks.beforePlay();
+    hooks.subtitles?.prepare(playing());
     return driver().play(i);
   });
   handle('subtitles:choose', (i: number) => driver().chooseSubtitle(i));
@@ -151,6 +172,7 @@ export function registerIpc(
   handle('library:get', () => readLibrary());
   handle('history:resume', async (h: HistoryEntry) => {
     await hooks.beforePlay();
+    hooks.subtitles?.prepare({ title: h.title, year: h.year, kind: h.kind, season: h.season, episode: h.episode });
     return driver().resume(h);
   });
   handle('history:remove', (h: HistoryEntry) => driver().removeFromHistory(h));
@@ -207,6 +229,7 @@ export function registerIpc(
   });
   handle('tv:play', async (name: string, group?: string) => {
     await hooks.beforePlay();
+    hooks.subtitles?.prepare(null); // a channel gets no subtitles (nor an earlier play's)
     return driver().tvPlay(name, group);
   });
   handle('tv:leave', () => driver().leaveTv());
@@ -233,6 +256,10 @@ export function registerIpc(
     return addonViews();
   });
 
+  // Subtitle files automatic subtitles keep (Settings shows them and can clear them).
+  handle('subtitles:cache', () => hooks.subtitles?.cacheInfo() ?? { files: 0, bytes: 0 });
+  handle('subtitles:clear-cache', () => hooks.subtitles?.clearCache() ?? { files: 0, bytes: 0 });
+
   const bundle = (): SettingsBundle => ({ tui: readTuiSettings(), gui: readGuiSettings(userData) });
   handle('settings:get', bundle);
   handle('settings:save', async (patch: { tui?: Partial<TuiSettings>; gui?: Partial<GuiSettings> }) => {
@@ -245,6 +272,8 @@ export function registerIpc(
     // The window's own preferences (subtitles) apply at once; only engine settings need a restart.
     if (!patch.tui && (patch.gui?.binaryPath === undefined || patch.gui.binaryPath === gui.binaryPath)) {
       writeGuiSettings(userData, { ...gui, ...patch.gui });
+      // Automatic subtitles may have been turned on or off (the engine's players follow).
+      if (patch.gui?.scout || patch.gui?.subtitles) await hooks.refreshStandIns?.();
       return bundle();
     }
     // The TUI reads config.json at startup, so stop it first and start it again after writing.

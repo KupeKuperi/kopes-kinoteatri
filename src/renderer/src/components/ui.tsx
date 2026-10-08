@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { ExternalLink } from 'lucide-react';
 import { t } from '@/lib/i18n';
 import { isTyping } from '@/lib/nav';
 
@@ -67,6 +68,23 @@ export function Button({
       {busy ? <Spinner className={variant === 'primary' ? '!text-house' : ''} /> : icon}
       {children}
     </button>
+  );
+}
+
+/** A link to another site, as a small button: it opens in the browser (the window never navigates). */
+export function LinkButton({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      data-nav=""
+      title={href}
+      className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-lg border border-seam bg-curtain/70 px-3 text-[13px] text-screen transition-colors hover:bg-curtain"
+    >
+      {children}
+      <ExternalLink size={12} className="shrink-0 text-dim" />
+    </a>
   );
 }
 

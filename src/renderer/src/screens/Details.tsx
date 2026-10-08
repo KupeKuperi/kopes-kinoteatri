@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react';
-import { Download, Monitor, Play, Star, Subtitles } from 'lucide-react';
-import type { DetailsView, ImdbRating, StreamOption } from '@shared/types';
-import { formatBytes, imageUrl, imdbPoster, mb } from '@/lib/api';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Download, ExternalLink, Monitor, Play, Star, Subtitles } from 'lucide-react';
+import { autoSubtitleLanguage, SCOUT_CATEGORIES, SCOUT_CATEGORY_NAMES, subtitleLinks, type ScoutContext, type ScoutLink } from '@shared/scout';
+import type { DetailsView, ScoutCategory, StreamOption } from '@shared/types';
+import { formatBytes, imageUrl, imdbPoster } from '@/lib/api';
 import { q, t, tm } from '@/lib/i18n';
 import { isTyping } from '@/lib/nav';
 import { isWeb } from '@/lib/platform';
+import { SUBTITLE_FILE_HINT, useImdbMatch, useScoutLinks } from '@/lib/scout';
 import { useRoute, useStore } from '@/lib/store';
 import { Poster } from '@/components/Poster';
-import { Button, Chip, ErrorPanel, Eyebrow, Spinner } from '@/components/ui';
+import { Button, Chip, ErrorPanel, Eyebrow, LinkButton, Spinner } from '@/components/ui';
 
 const SOURCE_NAMES: Record<string, string> = { moviebox: 'MovieBox', fourkhdhub: '4KHDHub', '4khd': '4KHDHub', '4khdhub': '4KHDHub', dramachi: 'Dramachi', addons: 'Addons' };
 const sourceName = (id: string) => SOURCE_NAMES[id] ?? id;
@@ -49,7 +51,8 @@ function Loading() {
   );
 }
 
-function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
+/** `help`: where else to look, shown when the source has no streams for this title or episode. */
+function StreamsTable({ view, busy, help }: { view: DetailsView; busy: boolean; help: ReactNode }) {
   const play = useStore((s) => s.play);
   const playOnComputer = useStore((s) => s.playOnComputer);
   const download = useStore((s) => s.download);
@@ -73,6 +76,7 @@ function StreamsTable({ view, busy }: { view: DetailsView; busy: boolean }) {
             {state.streamsStatus === 'empty' && t('Try another episode, another audio track, or another source.')}
           </>
         )}
+        {(noStreamAddons || state.streamsStatus === 'empty') && help}
       </div>
     );
   }
@@ -175,15 +179,20 @@ function StreamsLoading({ source }: { source?: string }) {
   );
 }
 
+/** The app's sources other than `current` that a title can be looked for on. */
+function useOtherSources(current: string | null | undefined): string[] {
+  const providers = useStore((s) => s.providers);
+  const streamAddons = useStore((s) => s.env?.streamAddons.length ?? 0);
+  // Addons can't play anything without an add-on that provides streams, so then it isn't offered.
+  return providers.filter((p) => p !== current && (p.toLowerCase() !== 'addons' || streamAddons > 0));
+}
+
 /** A title opened by name (IMDb list, history, favorites) that the active source doesn't have. */
 function NotOnSource() {
   const miss = useStore((s) => s.detailsNotFound)!;
-  const providers = useStore((s) => s.providers);
   const retry = useStore((s) => s.retryTitleOn);
   const back = useStore((s) => s.back);
-  const streamAddons = useStore((s) => s.env?.streamAddons.length ?? 0);
-  // Addons can't play anything without an add-on that provides streams, so then it isn't offered.
-  const others = providers.filter((p) => p !== miss.source && (p.toLowerCase() !== 'addons' || streamAddons > 0));
+  const others = useOtherSources(miss.source);
   return (
     <div className="p-8 max-md:p-4">
       <div className="max-w-2xl rounded-2xl border border-seam bg-velvet/60 p-7 max-md:p-5">
@@ -270,6 +279,199 @@ function Episodes({ view, busy }: { view: DetailsView; busy: boolean }) {
   );
 }
 
+const hostOf = (url: string) => new URL(url).hostname.replace(/^www\./, '');
+
+const SCOUT_ID = 'find-elsewhere';
+
+/** Where else to look when this source has no streams: the app's other sources, then other sites. */
+function NoStreamsHelp({ links, busy, onMore }: { links: ScoutLink[]; busy: boolean; onMore: () => void }) {
+  const current = useStore((s) => s.status?.provider);
+  const retry = useStore((s) => s.retryTitleOn);
+  const others = useOtherSources(current);
+  // The first few of the torrent and streaming short lists.
+  const picks = [...links.filter((l) => l.category === 'torrent' && l.curated).slice(0, 4), ...links.filter((l) => l.category === 'streaming' && l.curated).slice(0, 3)];
+  if (!others.length && !picks.length) return null;
+  return (
+    <div className="mt-4 space-y-4 border-t border-seam/60 pt-4">
+      {others.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="mr-1">{t('Look for it on another source:')}</span>
+          {others.map((p) => (
+            <Button key={p} size="sm" disabled={busy} onClick={() => void retry(p)}>
+              {t('Look on {source}', { source: p })}
+            </Button>
+          ))}
+        </div>
+      )}
+      {picks.length > 0 && (
+        <div>
+          <div className="mb-2 text-screen">{t('Or find it on another site:')}</div>
+          <div className="flex flex-wrap gap-2">
+            {picks.map((l) => (
+              <LinkButton key={l.id} href={l.url}>
+                {t('Search on {site}', { site: l.name })}
+              </LinkButton>
+            ))}
+            <Button size="sm" variant="quiet" onClick={onMore}>
+              {t('More sites')}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Does the source have subtitles in the subtitle setting's language for what is on screen? */
+function hasWantedSubtitles(view: DetailsView, preference: string): boolean {
+  if (preference === 'ask') return view.captions.length > 0;
+  const want = preference.toLowerCase();
+  return view.captions.some((c) => c.language.toLowerCase().startsWith(want));
+}
+
+/**
+ * The subtitle line: what the source has, the setting, and subtitle sites for the title. When the
+ * source lacks the language you want, it says automatic subtitles will add them, or (with those
+ * off) the sites open by themselves. Not on a phone: its player can't take a file from elsewhere.
+ */
+function SubtitleNote({ view, links, onMore }: { view: DetailsView; links: ScoutLink[]; onMore: () => void }) {
+  const subtitles = useStore((s) => s.subtitles);
+  const scout = useStore((s) => s.scout);
+  const sites = useMemo(() => (isWeb ? [] : subtitleLinks(links, subtitles)), [links, subtitles]);
+  const lacking = subtitles !== 'off' && view.streams.length > 0 && !hasWantedSubtitles(view, subtitles);
+  const auto = isWeb ? null : autoSubtitleLanguage(scout, subtitles);
+  const autoAdds = auto !== null && view.streams.length > 0 && !hasWantedSubtitles(view, auto);
+  const [shown, setShown] = useState<boolean | null>(null);
+  const open = sites.length > 0 && (shown ?? (lacking && !autoAdds));
+  const info = view.info;
+  return (
+    <section className="flex items-start gap-3 rounded-2xl border border-seam/70 bg-velvet/50 p-4">
+      <Subtitles size={17} className="mt-0.5 shrink-0 text-usher" />
+      <div className="min-w-0 flex-1 text-[13px] leading-relaxed text-usher">
+        {view.captions.length > 0 && (
+          <>
+            <span className="text-screen">{info?.kind === 'series' ? t('Subtitles for this episode:') : t('Subtitles for this title:')}</span>{' '}
+            {view.captions.map((c) => tm(c.language)).join(', ')}.{' '}
+          </>
+        )}
+        {subtitles === 'ask'
+          ? t('You choose the subtitles each time you play or download.')
+          : subtitles === 'off'
+            ? t('Plays without subtitles.')
+            : t('{language} subtitles load automatically when there are some; otherwise you choose.', { language: t(subtitles) })}{' '}
+        <button className="text-screen/80 underline decoration-seam underline-offset-2 hover:text-screen" onClick={() => useStore.getState().go({ name: 'settings' })}>
+          {t('Change')}
+        </button>
+        {sites.length > 0 && (
+          <>
+            {' · '}
+            <button className="text-screen/80 underline decoration-seam underline-offset-2 hover:text-screen" aria-expanded={open} onClick={() => setShown(!open)}>
+              {t('Find subtitles')}
+            </button>
+          </>
+        )}
+        {autoAdds && auto && (
+          <div className="mt-2 text-screen">
+            {view.captions.length
+              ? t('When it asks, choose “No subtitles”: {language} subtitles from OpenSubtitles are added to the player.', { language: t(auto) })
+              : t('{language} subtitles from OpenSubtitles are added to the player when you play.', { language: t(auto) })}
+          </div>
+        )}
+        {open && (
+          <div className="mt-3">
+            {lacking && <div className="mb-2 text-screen">{subtitles === 'ask' ? t('This source has no subtitles here. Other sites may:') : t('No {language} subtitles here. Other sites may have them:', { language: t(subtitles) })}</div>}
+            <div className="flex flex-wrap gap-2">
+              {sites.slice(0, 5).map((l) => (
+                <LinkButton key={l.id} href={l.url}>
+                  {l.name}
+                </LinkButton>
+              ))}
+              {sites.length > 5 && (
+                <Button size="sm" variant="quiet" onClick={onMore}>
+                  {t('More subtitle sites')}
+                </Button>
+              )}
+            </div>
+            <p className="mt-2 text-[12px] text-dim">{t(SUBTITLE_FILE_HINT)}</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * "Find elsewhere": searches for the title on other sites (IMDb Scout Mod's list). Links only:
+ * they open in the browser, and nothing checks what each site has. `group` is chosen here or by
+ * the blocks that point here ("More sites").
+ */
+function ScoutPanel({ links, matching, matched, group: picked, onGroup }: { links: ScoutLink[]; matching: boolean; matched: boolean; group: ScoutCategory | null; onGroup: (g: ScoutCategory) => void }) {
+  const settings = useStore((s) => s.scout);
+  const [expanded, setExpanded] = useState(false);
+
+  if (!settings.enabled || !settings.categories.length) return null;
+  if (matching) {
+    return (
+      <section id={SCOUT_ID}>
+        <Eyebrow>{t('Find elsewhere')}</Eyebrow>
+        <div className="mt-3 flex items-center gap-2 font-mono text-[12px] text-usher">
+          <Spinner /> {t('Matching the title on IMDb…')}
+        </div>
+      </section>
+    );
+  }
+
+  const groups = SCOUT_CATEGORIES.filter((c) => settings.categories.includes(c) && links.some((l) => l.category === c));
+  if (!groups.length) return null;
+  const group = picked && groups.includes(picked) ? picked : groups[0];
+  const inGroup = links.filter((l) => l.category === group);
+  const short = inGroup.filter((l) => l.curated);
+  // The short list first, unless Settings asks for every site (or the group has no short list).
+  const all = settings.allSites || expanded || !short.length;
+  const shown = all ? inGroup : short;
+  return (
+    <section id={SCOUT_ID}>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <Eyebrow className="mr-2">{t('Find elsewhere')}</Eyebrow>
+        {groups.map((c) => (
+          <Chip key={c} active={c === group} onClick={() => onGroup(c)}>
+            {t(SCOUT_CATEGORY_NAMES[c])}
+          </Chip>
+        ))}
+      </div>
+      <ul className="grid grid-cols-[repeat(auto-fill,minmax(172px,1fr))] gap-2 max-md:grid-cols-2">
+        {shown.map((l) => (
+          <li key={l.id}>
+            <a
+              href={l.url}
+              target="_blank"
+              rel="noreferrer"
+              data-nav=""
+              title={l.url}
+              className="marquee group flex h-[54px] items-center gap-2.5 rounded-xl border border-seam bg-velvet/70 px-3 transition-colors hover:bg-curtain"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13.5px] text-screen">{l.name}</span>
+                <span className="block truncate font-mono text-[10px] text-dim">{hostOf(l.url)}</span>
+              </span>
+              <ExternalLink size={13} className="shrink-0 text-dim transition-colors group-hover:text-screen" />
+            </a>
+          </li>
+        ))}
+      </ul>
+      {!settings.allSites && short.length > 0 && inGroup.length > short.length && (
+        <Button size="sm" variant="quiet" className="mt-2" onClick={() => setExpanded(!expanded)}>
+          {expanded ? t('Fewer sites') : t('Show all {n} sites', { n: inGroup.length })}
+        </Button>
+      )}
+      <p className="mt-2 text-[12px] leading-relaxed text-dim">
+        {!matched && `${t("IMDb doesn't know this title, so only sites that search by name are listed.")} `}
+        {t("Searches for this title on other sites, from the IMDb Scout Mod list. They open in your browser; the app doesn't check what each site has.")}
+      </p>
+    </section>
+  );
+}
+
 export function Details() {
   const view = useStore((s) => s.details);
   const loading = useStore((s) => s.detailsLoading);
@@ -279,26 +481,28 @@ export function Details() {
   const ytDlp = useStore((s) => s.env?.ytDlp);
   const route = useRoute();
   const notFound = useStore((s) => s.detailsNotFound);
-  const subtitles = useStore((s) => s.subtitles);
   const { play, playOnComputer, download, toggleFavorite, selectAudio, setConsole, back } = useStore.getState();
   const [more, setMore] = useState(false);
-  const [imdb, setImdb] = useState<ImdbRating | null>(null);
+  const [scoutGroup, setScoutGroup] = useState<ScoutCategory | null>(null);
   const busy = Boolean(busyLabel);
 
-  // IMDb rating for this title (cached after the first lookup).
-  const imdbKey = view?.info ? `${view.info.title}|${view.info.year ?? ''}|${view.info.kind}` : '';
-  useEffect(() => {
-    setImdb(null);
-    const v = useStore.getState().details;
-    if (!imdbKey || !v?.info) return;
-    let stale = false;
-    // The screen title is the clean one (cache titles can carry dub tags like "[Hindi]").
-    mb.imdbRatings([{ title: v.state.title || v.info.title, year: v.info.year, type: v.info.kind }]).then(
-      ([r]) => !stale && setImdb(r ?? null),
-      () => undefined,
-    );
-    return () => void (stale = true);
-  }, [imdbKey]);
+  // IMDb rating for this title (cached after the first lookup). The screen title is the clean one
+  // (cache titles can carry dub tags like "[Hindi]").
+  const title = view?.info ? view.state.title || view.info.title : '';
+  const year = view?.info?.year;
+  const kind = view?.info?.kind ?? '';
+  const { imdb, matching } = useImdbMatch(title, year, kind);
+
+  // "Find elsewhere" links, shared by its panel, the no-streams help and the subtitle line.
+  const season = view?.current?.season;
+  const episode = view?.current?.episode;
+  const scoutCtx = useMemo<ScoutContext | null>(() => (title ? { imdbId: imdb?.id, title, year, kind, season, episode } : null), [title, imdb?.id, year, kind, season, episode]);
+  const allLinks = useScoutLinks(scoutCtx);
+  const links = matching ? [] : allLinks;
+  const showScoutGroup = (group: ScoutCategory) => {
+    setScoutGroup(group);
+    requestAnimationFrame(() => document.getElementById(SCOUT_ID)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
 
   useEffect(() => {
     if (route.name !== 'details') return;
@@ -433,28 +637,13 @@ export function Details() {
               </span>
             )}
           </div>
-          <StreamsTable view={view} busy={busy} />
+          <StreamsTable view={view} busy={busy} help={<NoStreamsHelp links={links} busy={busy} onMore={() => showScoutGroup('torrent')} />} />
         </section>
 
-        <section className="flex items-start gap-3 rounded-2xl border border-seam/70 bg-velvet/50 p-4">
-          <Subtitles size={17} className="mt-0.5 shrink-0 text-usher" />
-          <div className="text-[13px] leading-relaxed text-usher">
-            {view.captions.length > 0 && (
-              <>
-                <span className="text-screen">{info?.kind === 'series' ? t('Subtitles for this episode:') : t('Subtitles for this title:')}</span>{' '}
-                {view.captions.map((c) => tm(c.language)).join(', ')}.{' '}
-              </>
-            )}
-            {subtitles === 'ask'
-              ? t('You choose the subtitles each time you play or download.')
-              : subtitles === 'off'
-                ? t('Plays without subtitles.')
-                : t('{language} subtitles load automatically when there are some; otherwise you choose.', { language: t(subtitles) })}{' '}
-            <button className="text-screen/80 underline decoration-seam underline-offset-2 hover:text-screen" onClick={() => useStore.getState().go({ name: 'settings' })}>
-              {t('Change')}
-            </button>
-          </div>
-        </section>
+        {/* Keyed by title, so what was opened or expanded resets for the next one. */}
+        <SubtitleNote key={`subtitles-${info?.subjectId}`} view={view} links={links} onMore={() => showScoutGroup('subtitles')} />
+
+        <ScoutPanel key={`scout-${info?.subjectId}`} links={links} matching={matching} matched={Boolean(imdb)} group={scoutGroup} onGroup={setScoutGroup} />
       </div>
     </div>
   );

@@ -11,22 +11,25 @@ import { parseLaunch, type PlayerLaunch } from './launch';
 
 /** Started by Electron in Node mode: `<app> <this file> <player> <the player's arguments…>`. */
 const STAND_IN = `'use strict';
-// Written by Kope's Kinoteatri (phone access): moviebox-tui starts this instead of its video player.
+// Written by Kope's Kinoteatri (phone access, automatic subtitles): moviebox-tui starts this
+// instead of its video player.
 const http = require('http');
 const { spawn } = require('child_process');
 const [player, ...args] = process.argv.slice(2);
 const real = process.env['KK_REAL_' + String(player).toUpperCase()];
-function runReal() {
+// The app may answer with the arguments to use instead (the engine's, plus a subtitle file).
+function runReal(answered) {
   if (!real) {
     process.stderr.write('No ' + player + ' player is installed on this computer.\\n');
     process.exit(1);
   }
+  const argv = Array.isArray(answered) ? answered.map(String) : args;
   // A .cmd or .bat player runs through cmd.exe, quoted the way cmd reads it.
   const batch = process.platform === 'win32' && /\\.(cmd|bat)$/i.test(real);
   const quote = (a) => '"' + String(a).replace(/"/g, '""').replace(/%/g, '%%cd:~,%') + '"';
   const child = batch
-    ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/e:ON', '/v:OFF', '/c', '"' + [real, ...args].map(quote).join(' ') + '"'], { stdio: 'inherit', windowsVerbatimArguments: true })
-    : spawn(real, args, { stdio: 'inherit' });
+    ? spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/e:ON', '/v:OFF', '/c', '"' + [real, ...argv].map(quote).join(' ') + '"'], { stdio: 'inherit', windowsVerbatimArguments: true })
+    : spawn(real, argv, { stdio: 'inherit' });
   child.on('error', (e) => { process.stderr.write(String(e) + '\\n'); process.exit(1); });
   child.on('exit', (code, signal) => process.exit(code === null ? (signal ? 1 : 0) : code));
 }
@@ -41,27 +44,28 @@ const req = http.request(
       let answer = {};
       try { answer = JSON.parse(body); } catch {}
       if (answer.action === 'phone') process.exit(0);
-      else runReal();
+      else runReal(answer.args);
     });
-    res.on('error', runReal);
+    res.on('error', () => runReal());
   },
 );
-req.on('error', runReal);
+req.on('error', () => runReal());
 req.end(JSON.stringify({ player, args }));
 `;
 
-export type LaunchDecision = { phone: true; done: Promise<void> } | null;
+/**
+ * What to do with a launch: the phone has it (the stand-in keeps running until `done` settles),
+ * start the real player with other `args`, or (null) start it as the engine asked.
+ */
+export type LaunchDecision = { phone: true; done: Promise<void> } | { args: string[] } | null;
 
 export class PlayerBridge {
   private server: http.Server | null = null;
   private port = 0;
   private readonly key = crypto.randomBytes(18).toString('base64url');
 
-  /**
-   * Decides each launch: null starts the real player; otherwise the phone has it, and the
-   * stand-in keeps running until `done` settles.
-   */
-  onLaunch: (launch: PlayerLaunch) => LaunchDecision = () => null;
+  /** Decides each launch (`args`: the engine's command line for the player). */
+  onLaunch: (launch: PlayerLaunch, args: string[]) => LaunchDecision | Promise<LaunchDecision> = () => null;
 
   constructor(private readonly dir: string) {}
 
@@ -77,8 +81,8 @@ export class PlayerBridge {
   }
 
   private async handle(req: http.IncomingMessage, res: http.ServerResponse) {
-    const answer = (action: 'player' | 'phone') => {
-      if (!res.writableEnded) res.end(JSON.stringify({ action }));
+    const answer = (action: 'player' | 'phone', args?: string[]) => {
+      if (!res.writableEnded) res.end(JSON.stringify(args ? { action, args } : { action }));
     };
     if (req.method !== 'POST' || req.url !== '/launch' || req.headers['x-kk-key'] !== this.key) {
       res.statusCode = 404;
@@ -88,14 +92,22 @@ export class PlayerBridge {
     req.setEncoding('utf8');
     for await (const chunk of req) body += chunk;
     let launch: PlayerLaunch | null = null;
+    let args: string[] = [];
     try {
-      const { player, args } = JSON.parse(body) as { player: string; args: string[] };
-      launch = parseLaunch(player, args);
+      const sent = JSON.parse(body) as { player: string; args: string[] };
+      args = sent.args;
+      launch = parseLaunch(sent.player, sent.args);
     } catch {
       /* not ours to judge: just play */
     }
-    const decision = launch ? this.onLaunch(launch) : null;
+    let decision: LaunchDecision = null;
+    try {
+      decision = launch ? await this.onLaunch(launch, args) : null;
+    } catch {
+      /* the player starts as the engine asked */
+    }
     if (!decision) return answer('player');
+    if ('args' in decision) return answer('player', decision.args);
     res.setHeader('content-type', 'application/json');
     decision.done.then(
       () => answer('phone'),

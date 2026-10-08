@@ -111,6 +111,10 @@ export interface MbApi {
 
   settings(): Promise<SettingsBundle>;
   saveSettings(patch: { tui?: Partial<TuiSettings>; gui?: Partial<GuiSettings> }): Promise<SettingsBundle>;
+  /** Subtitle files automatic subtitles keep in the app's folder. */
+  subtitleCache(): Promise<{ files: number; bytes: number }>;
+  /** Deletes them; returns what is left. */
+  clearSubtitleCache(): Promise<{ files: number; bytes: number }>;
 
   /** Subscribes to engine events; returns an unsubscribe function. */
   on(listener: (event: EngineEvent) => void): () => void;
