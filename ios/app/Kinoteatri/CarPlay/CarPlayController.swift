@@ -73,7 +73,9 @@ final class CarPlayController {
 
         let entries = CarPlayContent.capped(library.continueWatching, limit)
         update(continueList, rows: entries.map { CarPlayContent.continueRow($0, playing: playing) }) { [weak self] index, done in
-            self?.resume(entries[index], done: done)
+            guard let self else { return done() }
+            // The list is rebuilt only when its text changes: the latest position is the library's.
+            self.resume(self.library.entry(for: entries[index].id) ?? entries[index], done: done)
         }
 
         let favorites = CarPlayContent.capped(library.favorites.map(\.title), limit)

@@ -4,7 +4,7 @@ The iPhone app runs the engine itself (no computer needed). This file is the pla
 between the parts, and the rules for everyone working on it (people and agents). Read it fully
 before touching anything under `ios/`.
 
-## Step 1 goal (current)
+## Step 1 goal (done)
 
 A test app that, **on its own on an iPhone**, searches MovieBox, opens a title, lists its
 streams and plays one in the iPhone's own player. Proven in the iOS Simulator on GitHub's Macs
@@ -13,6 +13,65 @@ streams and plays one in the iPhone's own player. Proven in the iOS Simulator on
 
 Out of scope for step 1: other sources (4KHDHub, Dramachi, add-ons), Live TV, downloads,
 history sync, the Georgian UI (step 2 reuses the desktop screens), subtitle choice UI.
+
+## Step 2: the app (current, branch `ios-step2`)
+
+The real app over the same core and contract (no core change): native SwiftUI, dark "house
+lights down" look from the desktop (velvet blacks, warm silver text, the bulb accent), Dynamic
+Type, VoiceOver labels, haptics on Play and the heart, skeletons while things load. MovieBox path
+only (other sources and Live TV stay out). The car: `ios/CARPLAY.md`.
+
+```
+Screens (SwiftUI, Screens/)        App layer (one instance, shared with CarPlay)
+  Home · Search · Title ·    ──▶     AppModel        tab, core version, CarPlay connected
+  Library · Settings                 LibraryStore    favorites, history + positions, recents, searches
+  mini player, "Starting…"           SearchStore     search as you type, Movies/Series filter
+CarPlay (CarPlay/)           ──▶     TitleStore      details (dub), seasons/episodes, streams
+  tabs, lists, Now Playing           PlaybackCenter  THE play: PlayerModel, history, Now Playing,
+                                                     remote commands ──▶ KinoCore (kino_call)
+Player (PlayerScreen/PlayerModel): Apple's AVPlayerViewController, full screen
+```
+
+- **Home:** the marquee and a search pill, then Continue watching (a tap plays on where it
+  stopped, or the next episode), Favorites and Recently viewed. The core has no home lists, so
+  Home is the person's own; an empty library gets a typographic welcome pointing at Search.
+- **Search:** results as you type (450 ms after the last key; older answers dropped), a
+  Movies/Series filter, a poster grid, and recent searches before the first search. Empty and
+  error states say what to do. The field lets go of the keyboard on search and when a title opens.
+- **Title:** the poster over a blurred glow of itself, facts, then Play, Resume ("Resume from
+  42:10") or "Play S1 E3", and the heart. Below that: the description, dubs as chips, seasons and
+  episodes (opened where the person left off), and streams with the best one marked and the
+  subtitle switch. Play picks a stream by the quality setting (best or data saver).
+- **Player:** unchanged at heart (`PlayerScreen`, `PlayerModel`), with these additions:
+  - "Play in landscape" (Settings, on by default): it opens sideways and stays there, while
+    browsing is portrait (`Orientation.swift`, app delegate mask plus iOS 16 geometry requests).
+  - Any subtitle language the core knows (Settings; `SubtitleLanguages` mirrors `server.rs`
+    `language_code`), selected by itself.
+  - The episode line and the poster in the player's info.
+  - Now Playing published by `PlaybackCenter`, not by the player.
+- **Library:** History (where each title stopped, Resume, swipe to remove) and Favorites (a grid).
+  It lives in `Application Support/KinoteatriApp/library.json`, apart from the engine's folder. The
+  engine has its own history and favorites, but the core exposes no op for them, so the app keeps
+  its own. The UI tests (`KINO_UI_TEST=1`) start each launch with an empty library.
+- **Settings:** play in landscape, Play's quality, subtitles and their language, CarPlay status,
+  clear searches or history, the versions (app and `version` op), Copy diagnostics and the recent
+  events.
+- **Strings:** every text is in `App/Strings.swift` (`String(localized:defaultValue:)` with fixed
+  keys). A Georgian `Localizable.xcstrings` is the next step for the desktop's ქარ/ENG.
+- **One playback:** a play starts in `PlaybackCenter` from wherever it was asked (a title, Continue
+  watching, the car, "next" on the lock screen). It goes into the history, and its position is
+  saved every 5 s and on close. The phone's full-screen player is one view of it; the mini player,
+  Now Playing and the car are others. A new play ends the old one.
+
+Tests (CI, Simulator):
+
+- **UI tests:** Settings (engine version, Copy diagnostics), then search, result, heart, stream.
+  The player opens sideways by itself and stays sideways upright; the close button brings back the
+  title. Home then has the film in Continue watching and Favorites. Inception's English subtitles
+  show by themselves, and no keyboard comes up over the player.
+- **Unit tests:** the library and its file, formats, subtitle languages, next episode, Play's
+  stream, the filter, Now Playing info, the car's rows, and the CarPlay scene in Info.plist. The
+  step-1 playback tests (play, Try again, subtitles, session stop) are unchanged.
 
 ## Architecture
 
@@ -96,7 +155,7 @@ Internal Rust interfaces (also in `api.rs` / module docs):
 | Guide, C ABI, dispatch, stub, `api.rs`, integration | `ios/GUIDE.md`, `ios/core/src/lib.rs`, `ios/core/src/api.rs`, `ios/core/include/kino.h`, `ios/Cargo.toml`, `ios/core/Cargo.toml` | lead (main session) |
 | DASH→HLS + local server | `ios/core/src/hls/**`, `ios/core/src/server.rs`, `ios/core/tests/**` | agent **hls** |
 | Engine bridge + smoke CLI | `ios/core/src/engine.rs`, `ios/core/src/bin/**`, `ios/engine/**` (minimal changes, logged in `KINO-CHANGES.md`) | agent **engine** |
-| iOS app + CI | `ios/app/**`, `.github/workflows/ios.yml` | agent **app** |
+| iOS app + CI (step 2 UI, CarPlay) | `ios/app/**`, `ios/CARPLAY.md`, `.github/workflows/ios.yml` | agent **app** |
 
 Need a dependency or a contract change? Say so in your report; the lead adds it. Don't commit
 or push from the shared working tree (the lead commits). The app agent works in its own git
@@ -121,7 +180,10 @@ wsl -e bash -lc 'cd /mnt/c/Users/nikam/Desktop/Claude/moviebox-gui/ios && CARGO_
 CI (`.github/workflows/ios.yml`, public repo so GitHub's Macs are free):
 - **core** (Linux): `cargo test`, then the smoke CLI against live MovieBox.
 - **ios** (macOS): build the core for `aarch64-apple-ios-sim` and `aarch64-apple-ios`, generate
-  the project with XcodeGen, run the XCTest suite in the Simulator, build an unsigned `.ipa`.
+  the project with XcodeGen, run the XCTest suite in the Simulator, build an unsigned `.ipa`. It
+  also prints the Simulator app's CarPlay entitlement and scene manifest.
+- **typecheck** (macOS, ~1 min): every Swift file under `ios/app/Kinoteatri` (subfolders too) and
+  the tests, with `swiftc`, so compile errors show before the long job builds the core.
 - The `.ipa` is only uploaded inside a password-protected zip (repo secret `IPA_PASSWORD`), with
   short retention: the repo is public, the app file shouldn't be.
 
@@ -165,13 +227,21 @@ CI (`.github/workflows/ios.yml`, public repo so GitHub's Macs are free):
       and an Inception subtitle smoke step; XCTest's automatic failure recordings are off (they
       would put film footage in the public test results).
 
-## Later (step 2 candidates, not started)
+## Later
 
-Seen while building step 1; none blocks playback.
+Seen while building steps 1 and 2; none blocks playback.
 
-- **Subtitles beyond English:** the app asks only for English; a picker would need an op listing
-  the languages MovieBox has for a release.
-- **Georgian UI** like the desktop app (ქარ/ENG).
+- **Subtitles per release:** Settings picks a language from the core's table and the app asks
+  for it with each play. Showing only the languages a release has would need an op listing
+  MovieBox's captions for it.
+- **Georgian UI** like the desktop app (ქარ/ENG): the texts are all keys in `App/Strings.swift`;
+  it needs a `Localizable.xcstrings` with Georgian (and a font check for Mkhedruli in the
+  condensed display style).
+- **Engine history and favorites:** the engine keeps its own (TUI); an op to read them would let
+  the phone show what was watched in the terminal app too.
+- **CarPlay in a real car:** needs Apple's CarPlay entitlement on a paid team, which AltStore's
+  free signing can't carry. Video in the car would need iOS 27's video category
+  (`ios/CARPLAY.md`).
 - **HLS BANDWIDTH:** AVPlayer logs `-12318 Segment exceeds specified bandwidth` because DASH
   `@bandwidth` (an average) goes into BANDWIDTH (meant as the peak). Playback doesn't stall; a
   fix would put it in AVERAGE-BANDWIDTH and declare a higher peak (desktop dash.ts has the same).
