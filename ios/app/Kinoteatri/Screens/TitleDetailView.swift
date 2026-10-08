@@ -52,7 +52,8 @@ struct TitleDetailView: View {
         .ignoresSafeArea(edges: .top)
         // The status bar and the back button stay readable over text scrolled under them.
         .overlay(alignment: .top) {
-            // From the screen's top (this view ignores the top safe area) past the back button.
+            // Under the status bar (an overlay keeps to the safe area unless it ignores it too) and
+            // 50 points more, past the back button; never over Play.
             LinearGradient(
                 stops: [
                     .init(color: Theme.house, location: 0),
@@ -62,7 +63,8 @@ struct TitleDetailView: View {
                 startPoint: .top,
                 endPoint: .bottom
             )
-                .frame(height: 112)
+                .frame(height: 50)
+                .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
