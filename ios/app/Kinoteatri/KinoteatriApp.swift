@@ -1,11 +1,14 @@
-// Kope's Kinoteatri for iPhone, step 1: a plain test app over the core (search, a title, its
-// streams, the player). Step 2 replaces this UI. Plan: ios/GUIDE.md.
+// Kope's Kinoteatri for iPhone, step 2: the app over the core (Home, Search, a title, Library,
+// Settings; the full-screen player; CarPlay). Plan and contract: ios/GUIDE.md; the car: ios/CARPLAY.md.
 
 import AVFoundation
 import SwiftUI
 
 @main
 struct KinoteatriApp: App {
+    /// Answers UIKit's orientation question (browsing portrait, the player landscape).
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     /// True while the app only hosts the unit tests: they start the core themselves (in a temporary
     /// folder), so the app stays out of the way.
     static let isHostingTests: Bool = {
@@ -15,8 +18,8 @@ struct KinoteatriApp: App {
 
     init() {
         Diagnostics.shared.log("app \(Diagnostics.appVersion) started · \(Diagnostics.deviceModel) · \(ProcessInfo.processInfo.operatingSystemVersionString)")
-        // Films keep playing with the ringer switch on silent, in the background and in picture in
-        // picture.
+        // Films keep playing with the ringer switch on silent, in the background, in picture in
+        // picture and in the car.
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         } catch {
@@ -30,21 +33,25 @@ struct KinoteatriApp: App {
                 if Self.isHostingTests {
                     Color.black.ignoresSafeArea()
                 } else {
-                    SearchView()
+                    RootView()
+                        .environmentObject(AppModel.shared)
+                        .environmentObject(AppModel.shared.library)
+                        .environmentObject(AppModel.shared.playback)
                 }
             }
             .preferredColorScheme(.dark)
+            .tint(Theme.bulb)
         }
     }
 }
 
 extension View {
     /// Shows `message` (when set) in an alert; OK clears it.
-    func errorAlert(_ message: Binding<String?>, title: String = "Something went wrong") -> some View {
+    func errorAlert(_ message: Binding<String?>, title: String = L.somethingWrong) -> some View {
         alert(
             title,
             isPresented: Binding(get: { message.wrappedValue != nil }, set: { if !$0 { message.wrappedValue = nil } }),
-            actions: { Button("OK", role: .cancel) {} },
+            actions: { Button(L.ok, role: .cancel) {} },
             message: { Text(message.wrappedValue ?? "") }
         )
     }

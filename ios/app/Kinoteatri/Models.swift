@@ -112,3 +112,39 @@ func kindLine(year: String?, kind: String, extra: [String?] = []) -> String {
     let kindName = kind == "series" ? "Series" : kind == "movie" ? "Movie" : kind.capitalized
     return ([year, kindName] + extra).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
 }
+
+/// The episode after `episode` of `season`: the next in that season, else the first of the next
+/// season with episodes; nil after the last.
+func nextEpisode(after season: Int, _ episode: Int, in seasons: [SeasonInfo]) -> EpisodeRef? {
+    let ordered = seasons.sorted { $0.season < $1.season }
+    guard let index = ordered.firstIndex(where: { $0.season == season }) else { return nil }
+    let episodes = ordered[index].episodes.sorted { $0.episode < $1.episode }
+    if let next = episodes.first(where: { $0.episode > episode }) {
+        return EpisodeRef(season: season, episode: next.episode, title: next.title)
+    }
+    for later in ordered[(index + 1)...] {
+        if let first = later.episodes.min(by: { $0.episode < $1.episode }) {
+            return EpisodeRef(season: later.season, episode: first.episode, title: first.title)
+        }
+    }
+    return nil
+}
+
+extension Details {
+    /// The title as the library keeps it: the search result's id, with these details' facts.
+    func libraryTitle(id: String, fallback: Title) -> Title {
+        Title(
+            id: id,
+            title: title.isEmpty ? fallback.title : title,
+            year: year ?? fallback.year,
+            kind: kind,
+            poster: poster ?? fallback.poster,
+            rating: rating ?? fallback.rating
+        )
+    }
+
+    /// An episode's title, when the details name it.
+    func episodeTitle(season: Int, episode: Int) -> String? {
+        seasons.first { $0.season == season }?.episodes.first { $0.episode == episode }?.title
+    }
+}

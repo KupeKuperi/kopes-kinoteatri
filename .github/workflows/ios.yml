@@ -83,10 +83,14 @@ jobs:
           target=arm64-apple-ios16.0-simulator
           out="$RUNNER_TEMP/typecheck"
           mkdir -p "$out"
+          # The app's sources are in subfolders (App, Screens, Components, Library, Playback, CarPlay).
+          sources=()
+          while IFS= read -r file; do sources+=("$file"); done < <(find Kinoteatri -name '*.swift' | sort)
+          echo "${#sources[@]} Swift files"
           xcrun swiftc -version
-          xcrun swiftc -typecheck -swift-version 5 -target "$target" -sdk "$sdk" -I KinoFFI -module-name Kinoteatri Kinoteatri/*.swift
+          xcrun swiftc -typecheck -swift-version 5 -target "$target" -sdk "$sdk" -I KinoFFI -module-name Kinoteatri "${sources[@]}"
           xcrun swiftc -emit-module -enable-testing -swift-version 5 -target "$target" -sdk "$sdk" -I KinoFFI \
-            -module-name Kinoteatri -emit-module-path "$out/Kinoteatri.swiftmodule" Kinoteatri/*.swift
+            -module-name Kinoteatri -emit-module-path "$out/Kinoteatri.swiftmodule" "${sources[@]}"
           xcrun swiftc -typecheck -swift-version 5 -target "$target" -sdk "$sdk" -I "$out" -I KinoFFI \
             -F "$platform/Developer/Library/Frameworks" -I "$platform/Developer/usr/lib" \
             -module-name KinoteatriTests KinoteatriTests/*.swift
@@ -147,6 +151,16 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build/dd \
             2>&1 | tee build/xcodebuild-build.log | $fmt
+
+      # CarPlay: the Simulator app carries the CarPlay entitlement and declares the car's scene
+      # (ios/CARPLAY.md). For the record; it never fails the build.
+      - name: CarPlay entitlement and scene in the Simulator app
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          app=build/dd/Build/Products/Debug-iphonesimulator/Kinoteatri.app
+          codesign -d --entitlements - "$app" 2>&1 | grep -i -A2 carplay || echo "no CarPlay entitlement in the signature"
+          if otool -s __TEXT __entitlements "$app/Kinoteatri" | grep -q .; then echo "__entitlements section present"; else echo "no __entitlements section"; fi
+          /usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest' "$app/Info.plist" || true
 
       - name: Unsigned device build (.ipa)
         id: device

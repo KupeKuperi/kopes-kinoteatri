@@ -1,10 +1,12 @@
-// What plays: the core's local URL in an AVPlayer. The title goes in the item's metadata (Apple's
-// player shows it). English subtitles are selected by themselves when the app asked the core for
-// them. "Try again" after a failure (MovieBox's CDN cookie can expire during a long film) asks the
-// core for the stream afresh and resumes where it stopped. Closing stops the core's session. The
-// player's status goes to the diagnostics log. On screen: PlayerScreen.swift.
+// What plays: the core's local URL in an AVPlayer. The title (and the episode, the poster) go in
+// the item's metadata (Apple's player shows them). Subtitles in the language the app asked the core
+// for are selected by themselves. "Try again" after a failure (MovieBox's CDN cookie can expire
+// during a long film) asks the core for the stream afresh and resumes where it stopped. Closing
+// stops the core's session. The player's status goes to the diagnostics log. On screen:
+// PlayerScreen.swift; who plays what (phone, CarPlay, Now Playing): PlaybackCenter.swift.
 
 import AVFoundation
+import UIKit
 
 /// A play on screen: the core's answer, and what was asked (for "Try again").
 struct Playing: Identifiable {
@@ -24,6 +26,14 @@ final class PlayerModel: ObservableObject {
     @Published private(set) var retrying = false
     /// The subtitle languages the stream offers ("en"), once the player has read them.
     @Published private(set) var subtitleOptions: [String] = []
+    /// Playing (or about to: waiting for data), not paused.
+    @Published private(set) var isPlaying = false
+    /// Where playback is (seconds), every second.
+    @Published private(set) var time: Double = 0
+    /// Shown under the title in the player ("S1 · E3 · Pilot"); set before `start`.
+    var subtitleLine: String?
+    /// The poster, for the player's info panel (JPEG); can come after `start`.
+    private(set) var artwork: Data?
     /// Where playback had got to (seconds), for "Try again".
     private(set) var lastTime: Double = 0
     /// Whether a subtitle line is on screen now.
@@ -33,9 +43,11 @@ final class PlayerModel: ObservableObject {
     private var play: Play
     /// Where to seek once the stream is ready (after "Try again", or a start time).
     private var pendingSeek: Double?
-    /// Show English subtitles when the stream has them: the app asked the core for them, and the
-    /// person hasn't turned them off in the player's menu since.
+    /// Show the asked-for subtitles when the stream has them: the app asked the core for them, and
+    /// the person hasn't turned them off in the player's menu since.
     private var wantsSubtitles: Bool
+    /// The language asked for, as the stream's subtitle option names it ("en").
+    private let wantedLanguage: String
     private var legibleGroup: AVMediaSelectionGroup?
     private let cues = CueWatcher()
     private var itemStatus: NSKeyValueObservation?
@@ -53,6 +65,7 @@ final class PlayerModel: ObservableObject {
         play = playing.play
         title = playing.play.title
         wantsSubtitles = playing.request.subtitles != nil
+        wantedLanguage = playing.request.subtitles.flatMap(SubtitleLanguages.code(for:)) ?? "en"
         if let startAt, startAt > 0 {
             pendingSeek = startAt
         }
@@ -63,6 +76,12 @@ final class PlayerModel: ObservableObject {
 
     /// The core's session of the play.
     var session: String { play.session }
+
+    /// The film's length (seconds), once the stream says.
+    var duration: Double? {
+        guard let seconds = player.currentItem?.duration.seconds, seconds.isFinite, seconds > 0 else { return nil }
+        return seconds
+    }
 
     /// The subtitles on screen ("en"); nil while they're off.
     var shownSubtitleLanguage: String? {
@@ -79,6 +98,7 @@ final class PlayerModel: ObservableObject {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 600), queue: .main) { [weak self] time in
             guard let self, self.pendingSeek == nil, time.isNumeric, time.seconds > 0 else { return }
             self.lastTime = time.seconds
+            self.time = time.seconds
         }
         playerStatus = player.observe(\.timeControlStatus, options: [.new]) { [weak self] player, _ in
             DispatchQueue.main.async { self?.timeControlChanged(player) }
@@ -94,7 +114,7 @@ final class PlayerModel: ObservableObject {
             return
         }
         let item = AVPlayerItem(url: url)
-        item.externalMetadata = Self.metadata(title: play.title)
+        item.externalMetadata = Self.metadata(title: play.title, subtitle: subtitleLine, artwork: artwork)
         // Tells when a subtitle line shows (diagnostics, the UI tests); the player still draws them.
         let legible = AVPlayerItemLegibleOutput(mediaSubtypesForNativeRepresentation: [])
         legible.setDelegate(cues, queue: .main)
@@ -153,7 +173,7 @@ final class PlayerModel: ObservableObject {
         }
     }
 
-    /// Reads the stream's subtitle languages; when English is wanted, selects it, so it shows
+    /// Reads the stream's subtitle languages; when one was asked for, selects it, so it shows
     /// without the player's menu (where the person can still turn it off).
     private func pickSubtitles(_ item: AVPlayerItem) {
         Task { @MainActor [weak self] in
@@ -169,17 +189,22 @@ final class PlayerModel: ObservableObject {
             self.subtitleOptions = group.options.map(PlayerModel.languageTag)
             Diagnostics.shared.log("subtitles offered: \(self.subtitleOptions.joined(separator: ", "))")
             guard self.wantsSubtitles else { return }
-            guard let english = group.options.first(where: { PlayerModel.languageTag($0) == "en" }) else {
-                Diagnostics.shared.log("subtitles: no English among them")
+            let wanted = self.wantedLanguage
+            guard let option = group.options.first(where: { PlayerModel.languageTag($0) == wanted }) else {
+                Diagnostics.shared.log("subtitles: no \(wanted) among them")
                 return
             }
-            item.select(english, in: group)
-            Diagnostics.shared.log("subtitles: English selected")
+            item.select(option, in: group)
+            Diagnostics.shared.log("subtitles: \(wanted) selected")
         }
     }
 
     private func timeControlChanged(_ player: AVPlayer) {
         guard !isClosed else { return }
+        let playing = player.timeControlStatus != .paused
+        if playing != isPlaying {
+            isPlaying = playing
+        }
         switch player.timeControlStatus {
         case .playing:
             Diagnostics.shared.log("player: playing")
@@ -271,6 +296,51 @@ final class PlayerModel: ObservableObject {
         }
     }
 
+    // MARK: Controls (Now Playing, CarPlay, the mini player)
+
+    /// Plays on after a pause.
+    func resume() {
+        guard !isClosed, failure == nil, !retrying else { return }
+        player.play()
+    }
+
+    func pause() {
+        guard !isClosed else { return }
+        player.pause()
+    }
+
+    func togglePlayPause() {
+        isPlaying ? pause() : resume()
+    }
+
+    /// Jumps to `seconds` (within the film); `done` once it's there.
+    func seek(to seconds: Double, done: (() -> Void)? = nil) {
+        guard !isClosed, seconds.isFinite else { return }
+        var target = max(0, seconds)
+        if let duration {
+            target = min(target, max(0, duration - 1))
+        }
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { [weak self] finished in
+            DispatchQueue.main.async {
+                guard let self, finished, !self.isClosed else { return }
+                self.lastTime = target
+                self.time = target
+                done?()
+            }
+        }
+    }
+
+    func skip(by seconds: Double, done: (() -> Void)? = nil) {
+        seek(to: player.currentTime().seconds + seconds, done: done)
+    }
+
+    /// The poster came: in the player's info panel from now on.
+    func setArtwork(_ data: Data) {
+        artwork = data
+        guard !isClosed, let item = player.currentItem else { return }
+        item.externalMetadata = Self.metadata(title: play.title, subtitle: subtitleLine, artwork: data)
+    }
+
     /// Stops playing and tells the core the session is over (once).
     func close() {
         guard !isClosed else { return }
@@ -283,6 +353,7 @@ final class PlayerModel: ObservableObject {
         }
         player.pause()
         player.replaceCurrentItem(with: nil)
+        isPlaying = false
         Diagnostics.shared.log("player: closed, stop session \(play.session)")
         Self.stop(play.session)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -303,13 +374,26 @@ final class PlayerModel: ObservableObject {
 
     // MARK: Helpers
 
-    /// The title Apple's player shows (and Now Playing, and picture in picture).
-    private static func metadata(title: String) -> [AVMetadataItem] {
-        let item = AVMutableMetadataItem()
-        item.identifier = .commonIdentifierTitle
-        item.value = title as NSString
-        item.extendedLanguageTag = "und"
-        return [item]
+    /// What Apple's player shows about the film: the title, the episode line under it, the poster.
+    static func metadata(title: String, subtitle: String?, artwork: Data?) -> [AVMetadataItem] {
+        func item(_ identifier: AVMetadataIdentifier, _ value: NSCopying & NSObjectProtocol, dataType: String? = nil) -> AVMetadataItem {
+            let item = AVMutableMetadataItem()
+            item.identifier = identifier
+            item.value = value
+            item.extendedLanguageTag = "und"
+            if let dataType {
+                item.dataType = dataType
+            }
+            return item
+        }
+        var items = [item(.commonIdentifierTitle, title as NSString)]
+        if let subtitle, !subtitle.isEmpty {
+            items.append(item(.iTunesMetadataTrackSubTitle, subtitle as NSString))
+        }
+        if let artwork {
+            items.append(item(.commonIdentifierArtwork, artwork as NSData, dataType: kCMMetadataBaseDataType_JPEG as String))
+        }
+        return items
     }
 
     /// A subtitle option's language as a short tag: "en" for English.

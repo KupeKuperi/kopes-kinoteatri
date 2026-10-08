@@ -11,7 +11,7 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.2.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
     # Swift sees the core's C header (ios/core/include/kino.h) as the module KinoFFI.
@@ -39,6 +39,9 @@ targets:
       # libc and libm are always linked; CoreFoundation is for the engine's time zone lookup.
       - sdk: libiconv.tbd
       - sdk: CoreFoundation.framework
+      # The car's screen (CarPlay templates) and Now Playing / the lock screen's buttons.
+      - sdk: CarPlay.framework
+      - sdk: MediaPlayer.framework
     info:
       path: Kinoteatri/Info.plist
       properties:
@@ -48,6 +51,13 @@ targets:
         LSRequiresIPhoneOS: true
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+          # The phone's window is SwiftUI's (WindowGroup); the car's screen is a CarPlay template
+          # scene (CarPlay/CarPlaySceneDelegate.swift, @objc name "CarPlaySceneDelegate").
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneClassName: CPTemplateApplicationScene
+                UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: CarPlaySceneDelegate
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
@@ -55,7 +65,8 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        # Sound keeps playing in the background and in picture in picture.
+        # Sound keeps playing in the background, in picture in picture and in the car (CarPlay
+        # needs it too).
         UIBackgroundModes:
           - audio
         UISupportsDocumentBrowser: false
@@ -70,6 +81,11 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ENABLE_PREVIEWS: YES
+        # CarPlay's entitlement (com.apple.developer.carplay-audio), for Simulator builds only: the
+        # Simulator's CarPlay window shows the app with it. A device build would need a provisioning
+        # profile that has it (Apple grants it to paid developer accounts on request; AltStore's
+        # free signing can't), so device builds leave it out. See ios/CARPLAY.md.
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": Kinoteatri-CarPlay.entitlements
 
   KinoteatriTests:
     type: bundle.unit-test

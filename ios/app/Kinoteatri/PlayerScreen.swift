@@ -1,9 +1,11 @@
 // The player on screen: Apple's own player (AVPlayerViewController) presented full screen by UIKit
-// from the top of the app, as Apple's apps show films. The video fills the screen and turns with
-// the phone; the player's own close button (or a swipe down) closes it; picture in picture works.
-// The title is in the item's metadata. "Playback stopped / Try again" shows over the video when
-// the stream fails. When the player leaves the screen (not into picture in picture) the core's
-// session stops.
+// from the top of the app, as Apple's apps show films. The video fills the screen; with "Play in
+// landscape" (Settings, on by default) it opens sideways and stays that way, else it turns with the
+// phone. The player's own close button (or a swipe down) closes it; picture in picture works. The
+// title, the episode and the poster are in the item's metadata. "Playback stopped / Try again"
+// shows over the video when the stream fails. The play itself belongs to PlaybackCenter (this is
+// one view of it): when the player leaves the screen (not into picture in picture) the center
+// hears it, and stops the core's session, or with CarPlay connected keeps the sound in the car.
 
 import AVKit
 import Combine
@@ -12,7 +14,7 @@ import UIKit
 /// AVKit calls its delegate on the main thread, hence `@preconcurrency`.
 @MainActor
 final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelegate {
-    /// The play on screen or in picture in picture; one at a time.
+    /// The player on screen or in picture in picture; one at a time.
     private(set) static var current: PlayerScreen?
 
     /// Set by the UI tests (KINO_UI_TEST=1): the player describes itself to them (PlayerProbeView).
@@ -20,6 +22,7 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
 
     let model: PlayerModel
     let controller = AVPlayerViewController()
+    private let onClosed: (PlayerScreen) -> Void
     private let status = PlayerStatusView()
     private let probe = PlayerProbeView()
     private var subscriptions: Set<AnyCancellable> = []
@@ -29,37 +32,48 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
     private var closeCheck: Task<Void, Never>?
     private(set) var isFinished = false
 
-    /// Shows `playing` full screen over whatever is on screen.
+    /// Starts `playing` (the core's answer) through PlaybackCenter and shows it full screen.
     @discardableResult
     static func present(_ playing: Playing) -> PlayerScreen? {
-        current?.finish()
+        PlaybackCenter.shared.start(playing, info: nil, startAt: nil, present: true)
+    }
+
+    /// Shows `model` (started) full screen over whatever is on screen; `onClosed` once it's gone
+    /// for good. nil when there's no window to show it in.
+    static func show(_ model: PlayerModel, onClosed: @escaping (PlayerScreen) -> Void) -> PlayerScreen? {
+        if let current, !current.isFinished {
+            if current.model === model {
+                return current
+            }
+            current.close()
+        }
         guard let top = topViewController() else {
             Diagnostics.shared.log("player: no window to show it in")
-            let session = playing.play.session
-            Task.detached { try? await KinoCore.shared.stop(session: session) }
             return nil
         }
-        // The UI tests can start a film further in (KINO_UITEST_START_AT, seconds).
-        let startAt = ProcessInfo.processInfo.environment["KINO_UITEST_START_AT"].flatMap { Double($0) }
-        let screen = PlayerScreen(playing: playing, startAt: startAt)
+        let screen = PlayerScreen(model: model, onClosed: onClosed)
         current = screen
-        screen.model.start()
         // The search field can still hold the keyboard (hidden): it would come up over the
         // player with the player's own menu.
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         let pictureInPicture = AVPictureInPictureController.isPictureInPictureSupported() ? "supported" : "not supported"
-        Diagnostics.shared.log("player: full screen, session \(playing.play.session), picture in picture \(pictureInPicture)")
-        top.present(screen.controller, animated: true)
+        Diagnostics.shared.log("player: full screen, session \(model.session), picture in picture \(pictureInPicture), landscape lock \(Preferences.landscapeLock ? "on" : "off")")
+        top.present(screen.controller, animated: true) {
+            screen.turn()
+        }
         return screen
     }
 
-    private init(playing: Playing, startAt: Double?) {
-        model = PlayerModel(playing: playing, startAt: startAt)
+    private init(model: PlayerModel, onClosed: @escaping (PlayerScreen) -> Void) {
+        self.model = model
+        self.onClosed = onClosed
         super.init()
         controller.player = model.player
         controller.delegate = self
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = true
+        // PlaybackCenter publishes Now Playing (the same with or without this screen).
+        controller.updatesNowPlayingInfoCenter = false
         controller.videoGravity = .resizeAspect
         controller.modalPresentationStyle = .fullScreen
         controller.loadViewIfNeeded()
@@ -90,6 +104,12 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         return top
     }
 
+    /// The player's turn: sideways with the landscape lock, else with the phone.
+    private func turn() {
+        guard !isFinished, !inPictureInPicture else { return }
+        Orientation.player(locked: Preferences.landscapeLock)
+    }
+
     /// Closes the player as its close button does.
     func close() {
         if controller.presentingViewController != nil, !controller.isBeingDismissed {
@@ -98,19 +118,31 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         finish()
     }
 
-    /// Ends the play: the core's session stops; the player goes if it's still on screen.
+    /// Gone for good: the player leaves the screen and PlaybackCenter hears it (once).
     func finish() {
-        guard !isFinished else { return }
+        guard leave() else { return }
+        onClosed(self)
+    }
+
+    /// For PlaybackCenter ending the play itself: the player leaves without telling it.
+    func dismissQuietly() {
+        _ = leave()
+    }
+
+    /// False when it had already left.
+    private func leave() -> Bool {
+        guard !isFinished else { return false }
         isFinished = true
         closeCheck?.cancel()
         subscriptions.removeAll()
-        model.close()
         if Self.current === self {
             Self.current = nil
+            Orientation.browsing()
         }
         if controller.presentingViewController != nil, !controller.isBeingDismissed {
             controller.dismiss(animated: false)
         }
+        return true
     }
 
     // MARK: Leaving the screen
@@ -154,6 +186,8 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
 
     func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
         inPictureInPicture = true
+        // The app shows under the small player: browsing turns as browsing does.
+        Orientation.browsing()
         Diagnostics.shared.log("player: picture in picture")
     }
 
@@ -187,8 +221,10 @@ final class PlayerScreen: NSObject, @preconcurrency AVPlayerViewControllerDelega
         }
         restoring = true
         Diagnostics.shared.log("player: back from picture in picture")
-        top.present(controller, animated: true) {
+        top.present(controller, animated: true) { [weak self] in
             completionHandler(true)
+            self?.inPictureInPicture = false
+            self?.turn()
         }
     }
 
