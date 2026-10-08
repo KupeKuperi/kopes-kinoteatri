@@ -127,7 +127,9 @@ struct ContinueCard: View {
             .padding(.vertical, 4)
         }
         .padding(10)
-        .frame(width: 280, height: 120)
+        // Taller with large Dynamic Type, never shorter.
+        .frame(width: 280, alignment: .leading)
+        .frame(minHeight: 120)
         .background(
             RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                 .fill(Theme.velvet)

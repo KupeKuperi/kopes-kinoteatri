@@ -226,6 +226,12 @@ CI (`.github/workflows/ios.yml`, public repo so GitHub's Macs are free):
       `KINO_UITEST_START_AT` (start a film n seconds in). CI also has a ~1 min Swift typecheck job
       and an Inception subtitle smoke step; XCTest's automatic failure recordings are off (they
       would put film footage in the public test results).
+- [x] Step 2 app (branch `ios-step2`, 2026-10-08): the SwiftUI app above, the phone's library,
+      one playback with Now Playing and remote commands, the landscape lock, CarPlay templates.
+      CI green: 37 unit tests and both UI tests, with the player sideways by itself and locked
+      upright, and Home with Continue watching and Favorites after a play; the app delegate's
+      mask keeps browsing upright. CI doesn't open the Simulator's CarPlay window; a real car
+      needs the entitlement (`ios/CARPLAY.md`). Not yet tried on the iPhone.
 
 ## Later
 

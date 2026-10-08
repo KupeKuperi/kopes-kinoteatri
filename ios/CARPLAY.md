@@ -50,7 +50,7 @@ CarPlay is a **managed capability**. The app needs the entitlement `com.apple.de
 - **Video apps may be refused:** Apple's guideline says audio apps must be designed primarily for audio playback.
 - **AltStore / free Apple ID:** the free provisioning profile has no CarPlay. AltStore signs with that profile's entitlements, so the app **installs and works on the phone but doesn't appear in the car**.
 - **Simulator:** Simulator builds carry the entitlement (`ios/app/Kinoteatri-CarPlay.entitlements`, set in `project.yml` for `iphonesimulator` only). In Xcode's Simulator, open **I/O → External Displays → CarPlay**: Kinoteatri is on the car's home screen.
-  - CI prints the built app's entitlements and its scene manifest (step "CarPlay entitlement and scene in the Simulator app").
+  - CI checks that the Simulator app embeds the entitlement and prints its scene manifest (step "CarPlay entitlement and scene in the Simulator app").
   - A unit test checks that the declared CarPlay scene class exists.
 - **With an approved team:** set `CODE_SIGN_ENTITLEMENTS: Kinoteatri-CarPlay.entitlements` for device builds too (in `project.yml`), set the team, and sign with Xcode. The CarPlay Simulator Mac app (Additional Tools for Xcode) can then drive the phone like a car.
 

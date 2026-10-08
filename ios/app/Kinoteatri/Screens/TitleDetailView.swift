@@ -50,6 +50,22 @@ struct TitleDetailView: View {
             .scrollIndicators(.hidden)
         }
         .ignoresSafeArea(edges: .top)
+        // The status bar and the back button stay readable over text scrolled under them.
+        .overlay(alignment: .top) {
+            // From the screen's top (this view ignores the top safe area) past the back button.
+            LinearGradient(
+                stops: [
+                    .init(color: Theme.house, location: 0),
+                    .init(color: Theme.house.opacity(0.8), location: 0.5),
+                    .init(color: Theme.house.opacity(0), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .frame(height: 112)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
         .houseBackground()
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)

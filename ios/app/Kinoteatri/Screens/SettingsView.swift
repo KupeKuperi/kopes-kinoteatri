@@ -71,8 +71,6 @@ struct SettingsView: View {
                             .foregroundStyle(app.carPlayConnected ? Theme.ok : Theme.usher)
                     }
                     .accessibilityElement(children: .combine)
-                } header: {
-                    Text(L.carPlay)
                 } footer: {
                     Text(L.carPlayFooter)
                 }

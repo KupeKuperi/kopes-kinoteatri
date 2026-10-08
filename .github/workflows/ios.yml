@@ -158,8 +158,13 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |
           app=build/dd/Build/Products/Debug-iphonesimulator/Kinoteatri.app
-          codesign -d --entitlements - "$app" 2>&1 | grep -i -A2 carplay || echo "no CarPlay entitlement in the signature"
-          if otool -s __TEXT __entitlements "$app/Kinoteatri" | grep -q .; then echo "__entitlements section present"; else echo "no __entitlements section"; fi
+          # Simulator builds keep their entitlements in the binary's __TEXT,__entitlements section
+          # (the ad hoc signature has none of them).
+          if grep -a -q 'com.apple.developer.carplay-audio' "$app/Kinoteatri"; then
+            echo "CarPlay entitlement embedded (com.apple.developer.carplay-audio)"
+          else
+            echo "::warning::No CarPlay entitlement in the Simulator app"
+          fi
           /usr/libexec/PlistBuddy -c 'Print :UIApplicationSceneManifest' "$app/Info.plist" || true
 
       - name: Unsigned device build (.ipa)
